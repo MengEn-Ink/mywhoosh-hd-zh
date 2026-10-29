@@ -1,0 +1,29 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build, test and package
+        shell: pwsh
+        run: ./scripts/build.ps1 -Version 0.1.0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mywhoosh-hd-zh-win-x64
+          path: |
+            artifacts/build-0.1.0/*.zip
+            artifacts/build-0.1.0/SHA256SUMS.txt
+            artifacts/build-0.1.0/tests.json
+          if-no-files-found: error
+          retention-days: 14

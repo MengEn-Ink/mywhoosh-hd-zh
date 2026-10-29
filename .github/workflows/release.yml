@@ -1,0 +1,61 @@
+name: Release Windows package
+on:
+  push:
+    branches: [main]
+    paths: ['release-version.txt']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, for example 0.1.0
+        required: true
+        default: '0.1.0'
+      prerelease:
+        description: Mark as prerelease
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Validate and build
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if (-not $env:RELEASE_VERSION) { $env:RELEASE_VERSION = (Get-Content -LiteralPath 'release-version.txt' -Raw -Encoding UTF8).Trim() }
+          if ($env:RELEASE_VERSION -notmatch '^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$') { throw 'Invalid version' }
+          "RELEASE_VERSION=$env:RELEASE_VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          ./scripts/build.ps1 -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: artifacts/build-*/*.zip
+          if-no-files-found: error
+      - name: Publish immutable version tag and prerelease assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRE_RELEASE: ${{ inputs.prerelease }}
+        run: |
+          $tag = 'v' + $env:RELEASE_VERSION
+          $bundle = 'artifacts/build-' + $env:RELEASE_VERSION
+          $files = @((Get-ChildItem -LiteralPath $bundle -Filter '*.zip').FullName)
+          $files += (Join-Path $bundle 'SHA256SUMS.txt')
+          $files += (Join-Path $bundle 'tests.json')
+          $argsList = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',('MyWhoosh HD ZH '+$tag),'--notes-file','docs/RELEASE-NOTES.md')
+          if ($env:PRE_RELEASE -ne 'false') { $argsList += '--prerelease' }
+          $argsList += $files
+          & gh @argsList
+          if ($LASTEXITCODE -ne 0) { throw 'Release failed; existing version is never overwritten' }
