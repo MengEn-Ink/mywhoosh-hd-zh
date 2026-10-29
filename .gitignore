@@ -1,0 +1,16 @@
+.tools/
+artifacts/
+.local/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.pak
+*.exe
+*.dll
+*.zip
+*.log
+*.pfx
+*.key
+.env*
+!tests/fixtures/.gitkeep
