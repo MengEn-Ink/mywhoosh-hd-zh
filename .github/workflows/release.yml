@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version, for example 0.1.0
+        description: Version, for example 0.1.1
         required: true
-        default: '0.1.0'
+        default: '0.1.1'
       prerelease:
         description: Mark as prerelease
         type: boolean
@@ -59,3 +59,14 @@ jobs:
           $argsList += $files
           & gh @argsList
           if ($LASTEXITCODE -ne 0) { throw 'Release failed; existing version is never overwritten' }
+          $json = & gh release view $tag --json assets,url,tagName
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify uploaded release assets' }
+          $info = $json | ConvertFrom-Json
+          $required = @(('mywhoosh-hd-zh-'+$env:RELEASE_VERSION+'-win-x64.zip'),'SHA256SUMS.txt','tests.json')
+          foreach ($asset in $required) { if (@($info.assets | Where-Object { $_.name -eq $asset -and $_.state -eq 'uploaded' }).Count -ne 1) { throw ('Missing uploaded asset: '+$asset) } }
+          $result = @{ tag=$tag; releaseUrl=$info.url; runUrl=('https://github.com/'+$env:GITHUB_REPOSITORY+'/actions/runs/'+$env:GITHUB_RUN_ID); commit=$env:GITHUB_SHA; assets=$info.assets } | ConvertTo-Json -Depth 12
+          [IO.File]::WriteAllText('release-evidence.json',$result,(New-Object Text.UTF8Encoding $false))
+          & gh release upload $tag 'release-evidence.json'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release evidence' }
+          & gh api --method PUT ('repos/'+$env:GITHUB_REPOSITORY+'/contents/.github/last-release.json') -f message=('ci: record verified assets for '+$tag) -f content=([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))) -f branch='main'
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot record release evidence in repository' }

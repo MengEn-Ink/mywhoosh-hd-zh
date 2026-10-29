@@ -17,13 +17,13 @@ jobs:
           global-json-file: global.json
       - name: Build, test and package
         shell: pwsh
-        run: ./scripts/build.ps1 -Version 0.1.0
+        run: ./scripts/build.ps1 -Version 0.1.1
       - uses: actions/upload-artifact@v4
         with:
           name: mywhoosh-hd-zh-win-x64
           path: |
-            artifacts/build-0.1.0/*.zip
-            artifacts/build-0.1.0/SHA256SUMS.txt
-            artifacts/build-0.1.0/tests.json
+            artifacts/build-0.1.1/*.zip
+            artifacts/build-0.1.1/SHA256SUMS.txt
+            artifacts/build-0.1.1/tests.json
           if-no-files-found: error
           retention-days: 14
