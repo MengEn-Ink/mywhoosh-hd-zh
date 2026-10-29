@@ -68,5 +68,9 @@ jobs:
           [IO.File]::WriteAllText('release-evidence.json',$result,(New-Object Text.UTF8Encoding $false))
           & gh release upload $tag 'release-evidence.json'
           if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release evidence' }
-          & gh api --method PUT ('repos/'+$env:GITHUB_REPOSITORY+'/contents/.github/last-release.json') -f message=('ci: record verified assets for '+$tag) -f content=([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))) -f branch='main'
+          $recordPath = 'repos/'+$env:GITHUB_REPOSITORY+'/contents/.github/last-release.json'
+          $previousSha = & gh api $recordPath --jq '.sha' 2>$null
+          $put = @('api','--method','PUT',$recordPath,'-f',('message=ci: record verified assets for '+$tag),'-f',('content='+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))),'-f','branch=main')
+          if ($LASTEXITCODE -eq 0 -and $previousSha) { $put += @('-f',('sha='+$previousSha)) }
+          & gh @put
           if ($LASTEXITCODE -ne 0) { throw 'Cannot record release evidence in repository' }

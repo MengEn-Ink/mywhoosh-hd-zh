@@ -17,13 +17,17 @@
 
 ## 已执行的构建验证
 
-scripts/build.ps1 已本地执行：运行回归、自包含发布 GUI/CLI、运行发布后 CLI 的 version/help、生成 ZIP 和 SHA256SUMS。初次构建包含 25 项回归，补充测试后的最终运行包会重新完整构建。
+scripts/build.ps1 已本地执行：29 项基础回归全部通过，自包含发布 GUI/CLI、运行发布后 CLI 的 version/help、生成 ZIP 和 SHA256SUMS。最终改进版本为 0.1.1，未覆盖已有发行版。
 
 ## GUI与远端流程
 
-GUI源码已编译；真实窗口显示与按钮操作需要单独验收，不以编译通过替代。
+发布后的原生 GUI 已在虚拟桌面启动，检查按钮实际完成扫描并显示与 CLI 一致的结果：2063 扫描、2060 匹配、2056 已中文、3 未匹配、4 个待更新文件。未在真实游戏目录执行更新，以保留已有安装状态。
 
-仓库已由 GitHub 插件建立并保持私有。完整文件正在同步。Actions 与远端 Release 必须以实际 run/asset 结果判定；仅存在工作流 YAML 不算已跑通。当前网页端 GitHub 登录未完成，后续用提交的 release-version.txt 触发预发布并通过 GitHub 插件查询实际发行资产。
+GitHub 私有仓库： https://github.com/MengEn-Ink/mywhoosh-hd-zh
+
+v0.1.0 已由 github-actions[bot] 创建预发布： https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.1.0
+
+工作流采用提交 release-version.txt 触发，避免依赖未登录的网页端。0.1.1 增加了发行后的 assets 状态回读、release-evidence.json 和仓库中的 .github/last-release.json；实际上传资产和 run URL 以该运行时证据为准，不用静态文档代替。
 
 ## 明确未覆盖
 
