@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWindowsForms>true</UseWindowsForms><AssemblyName>MyWhooshZH</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\Whoosh.Core\Whoosh.Core.csproj" /></ItemGroup>
+</Project>

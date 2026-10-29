@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><AssemblyName>whoosh-zh</AssemblyName></PropertyGroup>
+  <ItemGroup><ProjectReference Include="..\Whoosh.Core\Whoosh.Core.csproj" /></ItemGroup>
+</Project>
