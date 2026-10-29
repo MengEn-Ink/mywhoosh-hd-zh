@@ -1,4 +1,4 @@
-param([string]$Version='0.1.0',[string]$Dotnet='dotnet')
+param([string]$Version='0.1.1',[string]$Dotnet='dotnet')
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 if($Version -notmatch '^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$'){throw 'Invalid release version'}
