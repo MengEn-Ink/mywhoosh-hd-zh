@@ -4,7 +4,7 @@ try
 {
     if(args.Length==0||args[0] is "--help" or "help")
     {
-        Console.WriteLine("MyWhoosh HD ZH 0.1.0\n用法：whoosh-zh <diagnose|check|import|install|restore|version>\nimport --zip <上游资源包.zip>\ninstall --yes    restore --yes\n未知参数会报错；运行包不包含第三方汉化资源。\n已有旧版汉化由原恢复器管理，本工具不会伪造旧版备份。");return 0;
+        Console.WriteLine("MyWhoosh HD ZH "+AppInfo.Version+"\n用法：whoosh-zh <diagnose|check|import|install|restore|version>\nimport --zip <上游资源包.zip>\ninstall --yes    restore --yes\n未知参数会报错；运行包不包含第三方汉化资源。\n已有旧版汉化由原恢复器管理，本工具不会伪造旧版备份。");return 0;
     }
     string cmd=args[0];object result;
     switch(cmd)

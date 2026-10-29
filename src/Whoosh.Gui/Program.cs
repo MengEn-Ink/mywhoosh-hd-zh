@@ -17,7 +17,7 @@ public sealed class MainForm:Form
     private bool busy;
     public MainForm()
     {
-        Text="MyWhoosh HD 中文管理器 0.1.0";ClientSize=new Size(880,630);MinimumSize=new Size(760,580);StartPosition=FormStartPosition.CenterScreen;
+        Text="MyWhoosh HD 中文管理器 "+AppInfo.Version;ClientSize=new Size(880,660);MinimumSize=new Size(760,610);StartPosition=FormStartPosition.CenterScreen;
         Font=new Font("Microsoft YaHei UI",10);BackColor=Color.FromArgb(243,246,248);
         var title=new Label{Text="MyWhoosh HD 中文管理器",Font=new Font(Font.FontFamily,20,FontStyle.Bold),Height=62,Dock=DockStyle.Top,Padding=new Padding(16)};
         var note=new Label{Text="仅支持已验证的 6.2.3.0 构建 · 未知版本拒绝安装 · 安装前先退出游戏",Dock=DockStyle.Top,Height=38,Padding=new Padding(16,0,8,0)};
@@ -50,7 +50,17 @@ public sealed class MainForm:Form
         if(busy)return;busy=true;buttons.Enabled=false;status.Text="正在处理，请勿启动游戏或同时运行另一安装器……";
         try
         {
-            object result=await Task.Run(action);string log=Operations.Log(cmd,result);output.Text=Operations.Display(result)+"\r\n\r\n本地日志："+log;
+            object result=await Task.Run(action);string log=Operations.Log(cmd,result);
+            string summary;
+            var json=System.Text.Json.JsonSerializer.SerializeToElement(result,AppInfo.JsonOptions);
+            if(json.TryGetProperty("Scanned",out var scanned))
+            {
+                string managed=json.GetProperty("ManagedState").GetString()!;
+                summary=$"检查完成：受支持构建\r\n\r\n课程扫描：{scanned.GetInt32()} 份\r\n精确匹配：{json.GetProperty("Matched").GetInt32()} 份\r\n已经中文：{json.GetProperty("AlreadyChinese").GetInt32()} 份\r\n未匹配：{json.GetProperty("Unmatched").GetInt32()} 份（保留原文）\r\n待更新文件：{json.GetProperty("PendingFiles").GetInt32()} 个\r\n\r\n"+(managed=="unmanaged"?"本工具没有旧版备份账本。原有汉化仍由旧恢复器管理。":"本工具安装记录："+managed)+"\r\n"+json.GetProperty("Message").GetString();
+            }
+            else if(result is OperationResult r) summary=$"状态：{r.Status}\r\n更新文件：{r.Changed} 个\r\n跳过/冲突：{r.Skipped} 个\r\n\r\n{r.Message}";
+            else summary=Operations.Display(result);
+            output.Text=summary+"\r\n\r\n本地日志："+log;output.SelectionStart=0;output.SelectionLength=0;
             status.Text="操作结束 · 文件检查通过不等于所有游戏页面已验证";
         }
         catch(Exception e){output.Text="操作未完成\r\n"+e.Message;status.Text="已停止，请按上方说明处理；不会强行绕过校验。";}
