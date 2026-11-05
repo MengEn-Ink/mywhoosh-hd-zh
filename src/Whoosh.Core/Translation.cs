@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 
@@ -6,6 +7,7 @@ namespace Whoosh.Core;
 
 public static class PayloadStore
 {
+    private const string ResPrefix="Whoosh.Core.payload.";
     public static void Validate(string folder)
     {
         foreach (var item in AppInfo.PayloadHashes)
@@ -13,6 +15,23 @@ public static class PayloadStore
             var p = SafeFiles.Within(folder, item.Key);
             if (!File.Exists(p) || SafeFiles.HashFile(p) != item.Value) throw new InvalidDataException("资源未导入或校验失败：" + item.Key);
         }
+    }
+    /// <summary>若本地 payload 缺失或校验失败，从程序集嵌入资源释放。返回是否执行了释放。</summary>
+    public static bool EnsurePayload(string destination)
+    {
+        try { Validate(destination); return false; } catch { /* 需要释放 */ }
+        SafeFiles.NoLinks(destination); Directory.CreateDirectory(destination);
+        var asm=typeof(PayloadStore).Assembly;
+        foreach(var item in AppInfo.PayloadHashes)
+        {
+            string resName=ResPrefix+item.Key;
+            using var stream=asm.GetManifestResourceStream(resName)??throw new InvalidDataException("内置汉化资源缺失："+item.Key);
+            using var mem=new MemoryStream(); stream.CopyTo(mem);
+            byte[] bytes=mem.ToArray();
+            if(SafeFiles.Hash(bytes)!=item.Value)throw new InvalidDataException("内置资源校验失败："+item.Key);
+            SafeFiles.AtomicWrite(SafeFiles.Within(destination,item.Key),bytes);
+        }
+        Validate(destination); return true;
     }
     public static void ImportZip(string zipPath, string destination)
     {

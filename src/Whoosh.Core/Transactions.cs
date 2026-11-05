@@ -167,13 +167,13 @@ public static class Operations
     {
         var t=WindowsTarget.Detect(diagnoseOnly);
         if(diagnoseOnly)return new {AppInfo.Version,Package=t.Name,GameVersion=t.Version,Family=t.Family,KnownIdentity=t.Family==AppInfo.Family,Message="身份诊断不代表资源兼容性；安装前仍做完整哈希检查。"};
-        WindowsTarget.AssertSupported(t);PayloadStore.Validate(AppInfo.Payload);var p=Translation.Plan(t.SavedRoot,AppInfo.Payload);
+        WindowsTarget.AssertSupported(t);PayloadStore.EnsurePayload(AppInfo.Payload);var p=Translation.Plan(t.SavedRoot,AppInfo.Payload);
         var tx=new Transactions(t.SavedRoot,AppInfo.State,t.Family);
         return new {Supported=true,p.Scanned,p.Matched,p.AlreadyChinese,p.Unmatched,PendingFiles=p.Changes.Count,ManagedState=tx.Status(),Message="仅检查文件；不能替代游戏画面验证。"};
     }
     public static OperationResult Install()
     {
-        WindowsTarget.AssertClosed();var t=WindowsTarget.Detect();WindowsTarget.AssertSupported(t);PayloadStore.Validate(AppInfo.Payload);
+        WindowsTarget.AssertClosed();var t=WindowsTarget.Detect();WindowsTarget.AssertSupported(t);PayloadStore.EnsurePayload(AppInfo.Payload);
         return new Transactions(t.SavedRoot,AppInfo.State,t.Family).Apply(()=>Translation.Plan(t.SavedRoot,AppInfo.Payload),WindowsTarget.AssertClosed);
     }
     public static OperationResult Restore()

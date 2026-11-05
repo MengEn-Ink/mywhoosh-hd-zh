@@ -1,1 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <EmbeddedResource Include="payload\categories.json" />
+    <EmbeddedResource Include="payload\courses.json" />
+    <EmbeddedResource Include="payload\MyWhooshChinese_P.pak" />
+  </ItemGroup>
+</Project>
