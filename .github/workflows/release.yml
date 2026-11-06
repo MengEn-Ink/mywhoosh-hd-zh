@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version, for example 0.2.0
+        description: Version, for example 0.2.1
         required: true
-        default: '0.2.0'
+        default: '0.2.1'
       prerelease:
         description: Mark as prerelease
         type: boolean
@@ -77,12 +77,17 @@ jobs:
           Expand-Archive -LiteralPath $downloadedZip -DestinationPath $unpacked
           $cliVersion = & (Join-Path $unpacked 'whoosh-zh.exe') version
           if ($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $env:RELEASE_VERSION) { throw 'Redownloaded CLI version failed' }
+          $payloadDir = Join-Path $verifyDir 'isolated-payload'
+          $payloadJson = & (Join-Path $unpacked 'whoosh-zh.exe') payload-selftest --directory $payloadDir
+          if ($LASTEXITCODE -ne 0) { throw 'Redownloaded CLI payload selftest failed' }
+          $payloadResult = $payloadJson | ConvertFrom-Json
+          if (-not $payloadResult.pass -or $payloadResult.version -ne $env:RELEASE_VERSION) { throw 'Redownloaded resource/version verification failed' }
           $uiDir = Join-Path $verifyDir 'gui-layout'
           $uiProc = Start-Process -FilePath (Join-Path $unpacked 'MyWhooshZH.exe') -ArgumentList @('--layout-selftest',('"'+$uiDir+'"')) -Wait -PassThru -WindowStyle Hidden
           if ($uiProc.ExitCode -ne 0) { throw 'Redownloaded GUI selftest failed' }
           $uiResult = Get-Content -LiteralPath (Join-Path $uiDir 'ui-selftest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-          if (-not $uiResult.pass) { throw 'Redownloaded GUI report failed' }
-          $verification = @{ zipSha256=$downloadHash; redownloadHashMatches=$true; cliVersion=$cliVersion.Trim(); guiLayoutPass=$uiResult.pass }
+          if (-not $uiResult.pass -or -not $uiResult.payloadTest.pass -or $uiResult.payloadTest.version -ne $env:RELEASE_VERSION -or $uiResult.interactions.passed -lt 13 -or @($uiResult.stressViews).Count -ne 16) { throw 'Redownloaded GUI report failed' }
+          $verification = @{ zipSha256=$downloadHash; redownloadHashMatches=$true; cliVersion=$cliVersion.Trim(); guiLayoutPass=$uiResult.pass; payloadSelftestPass=$payloadResult.pass; guiPayloadSelftestPass=$uiResult.payloadTest.pass; guiInteractions=$uiResult.interactions.passed; stressViews=@($uiResult.stressViews).Count }
           $result = @{ tag=$tag; releaseUrl=$info.url; runUrl=('https://github.com/'+$env:GITHUB_REPOSITORY+'/actions/runs/'+$env:GITHUB_RUN_ID); commit=$env:GITHUB_SHA; assets=$info.assets; verification=$verification } | ConvertTo-Json -Depth 12
           [IO.File]::WriteAllText('release-evidence.json',$result,(New-Object Text.UTF8Encoding $false))
           & gh release upload $tag 'release-evidence.json'
