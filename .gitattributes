@@ -6,3 +6,7 @@
 *.yml text eol=lf
 *.md text eol=lf
 *.json text eol=lf
+# SHA-256 locked payload: preserve exact source bytes including line endings.
+src/Whoosh.Core/payload/* -text -eol -diff
+# Preserve upstream license notices verbatim.
+licenses/payload-fonts/* -text -eol -diff

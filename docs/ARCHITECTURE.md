@@ -19,7 +19,7 @@ CLI 和 GUI 只负责参数/按钮，统一调用 Whoosh.Core；不能在两个�
 
 ## 数据流
 
-上游 ZIP → 完整路径/大小/哈希检查 → 用户 LocalAppData 的独立 payload
+内嵌三项资源 → SHA-256 核验 → 用户 LocalAppData 的独立 payload；有效缓存不重复释放，损坏缓存修复。高级上游 ZIP 导入仍完整核验路径/大小/哈希。
 
 GUI 或 CLI → 当前账户 Appx 定位 → 身份+版本+主 PAK 哈希 → 游戏关闭检查 → 构建 PatchPlan → 备份并写 prepared → 原子写入逐项核验 → installed
 
@@ -45,4 +45,4 @@ AppInfo 是当前唯一受支持身份与资源指纹来源；没有可以由普
 
 ## 发行
 
-Windows Actions runner 使用锁定 SDK：测试 → 自包含 GUI/CLI → CLI 真入口冒烟 → 校验和 → ZIP → 手动批准的预发布 Release。CI 不含用户缓存、上游载荷或游戏文件。生成运行包和分发汉化资源是两个分开的许可问题。
+Windows Actions runner 使用锁定 SDK：回归（含内置资源首次释放）→ 自包含 GUI/CLI → CLI 真入口和六张 GUI 布局冒烟 → 校验和 → ZIP → 显式版本 Release。CI 不包含用户缓存、存档或游戏原主文件；包含发布者确认已获内置分发授权的三项社区资源与附带许可。资源路径按二进制字节保存，防止 Git 换行改写导致哈希失败。生成运行包和分发汉化资源仍是两个分开的许可问题。

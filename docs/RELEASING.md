@@ -1,54 +1,58 @@
 # GitHub Actions 构建与发行
 
-## 本地开发构建
+## 本地
 
-Windows x64，使用 global.json 固定的 .NET 10 SDK。
+使用 global.json 固定的官方 .NET SDK，在 Windows x64 构建：
 
 ```powershell
 dotnet run --project tests/Whoosh.Tests/Whoosh.Tests.csproj -c Release
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Version 0.1.0
+./scripts/build.ps1 -Version 0.2.0
 ```
 
-项目专用 SDK 可通过 `-Dotnet <dotnet.exe绝对路径>` 传给 build.ps1，不改变系统 PATH。输出目录已经存在时脚本拒绝覆盖；应保留旧版本并在干净检出中重建。
+可以传 `-Dotnet <dotnet.exe绝对路径>`，不修改系统 PATH。版本格式先校验；`artifacts/build-<版本>` 存在时拒绝覆盖，保留历史产物。
 
-## CI
+## CI 门禁
 
-`.github/workflows/ci.yml` 在 main push、PR、手动运行触发。权限 contents:read。Windows runner 安装锁定 SDK，然后调用与本地相同的构建脚本：
+`.github/workflows/ci.yml` 在 main push、PR、手动运行触发，contents:read。构建版本来自 release-version.txt，不再固定 0.1.1。
 
-1. 运行可执行回归测试；非零立即停止。
-2. 自包含发布 CLI、WinForms GUI。
-3. 运行发布后的 CLI version / help，而不只检查文件存在。
-4. 打包 ZIP、SHA256SUMS.txt、tests.json。
-5. 上传 Artifact，保存 14 天。
+1. 基础回归（含三项内嵌资源释放/幂等/修复）非零停止。
+2. 发布 GUI 和 CLI：Windows x64、自包含、单文件。
+3. 跑发布后的 CLI version/help。
+4. 跑发布后 GUI `--layout-selftest`，确认四页 + 两个窄窗，共六张截图，报告 pass=true 和零越界告警。
+5. 保留使用文档、汉化资源来源、字体和 .NET 许可；生成 ZIP、SHA256SUMS、tests.json、gui-layout.json。
+6. 上传 Artifact，保留 14 天。Artifact 不是长期 Release。
 
-Artifact 是一次构建的产物，Release 是长期版本分发，不要混淆。
+内置 PAK 必须真正跟踪到 Git（`.gitignore` 只为固定 payload 路径开例外），否则远端无法编译，不能只看本机成功。
 
-## 正式创建发行版
+## 发行
 
-GitHub → Actions → Release Windows package → Run workflow。
+先提交已测试的源码、资源、说明和工作流，再单独提交 release-version.txt 的版本变更到 main。该文件变化才自动发行；普通源码提交只触发 CI。也可手动运行 Release Windows package，填写新版本号。
 
-- version：例如 0.1.0；首版保持 prerelease=true。
-- 工作流校验版本格式，不将输入直接拼进可执行 shell 源码。
-- 重新运行测试与构建，生成 ZIP 和校验和。
-- 仅发行 job 具有 contents:write，通过 job 专用 GITHUB_TOKEN 创建 v0.1.0 标签与发行资产。
-- 已有同名版本不覆盖、不删除、不强推；修复后使用新版本号。
+v0.2.0 默认为非预发布版本；手动 prerelease=true 时才标为预发布。已有版本不覆盖、不删除、不强推。
 
-发行有两种显式入口：手动 Run workflow，或向 main 提交 release-version.txt 的版本变更。后者供插件工作流使用，只在该文件变化时触发，默认预发布；普通源码提交不触发发行。版本文件必须在完整代码已就绪后单独提交。无需长期 PAT、个人 SSH key 或外部云平台。
+发行 job 使用专用 GITHUB_TOKEN（contents:write），调用同一构建脚本，创建不可变版本标签及 Release，上传：
 
-## 开箱运行包
+- mywhoosh-hd-zh-<版本>-win-x64.zip
+- SHA256SUMS.txt
+- tests.json
+- gui-layout.json
+- release-evidence.json（资产状态回读后生成）
 
-- MyWhooshZH.exe：原生中文界面。
-- whoosh-zh.exe：命令行入口。
-- README / QUICKSTART / docs：使用与恢复说明。
-- DOTNET-LICENSE / DOTNET-ThirdPartyNotices：运行时声明。
-- SHA256SUMS.txt：文件校验值。
+每个必需资产要回读 state=uploaded，证据记录 run URL、commit、asset name/size/digest。`.github/last-release.json` 由 Actions 保存；不把静态说明或本地 ZIP 当成远端发布成功。
 
-不含上游 PAK/字典，用户导入已有合法资源包。私有仓库发行资产需要有该仓库读取权限，不能向无权限用户承诺匿名下载。
+## 下载包
 
-## 验证与限制
+- MyWhooshZH.exe：竞速座舱 GUI，内置三项汉化资源。
+- whoosh-zh.exe：共享核心 CLI，同样内置资源。
+- README / QUICKSTART / docs：功能、步骤、回退和边界。
+- licenses/payload-fonts：上游资源所附字体许可与声明。
+- DOTNET-LICENSE / DOTNET-ThirdPartyNotices：官方运行时许可。
+- SHA256SUMS.txt：包内文件校验值。
 
-将可复现本地测试和 Actions run 链接写入 VALIDATION。CI runner 没有真实游戏，不启动游戏，不触碰个人账户，不承诺训练硬件功能。
+发布者确认三项汉化资源获随本项目下载包内置分发授权，见 THIRD-PARTY-NOTICES；没有另授无限制再分发或开源权利。仓库权限保持不变；私有仓库下载需读取权限，不承诺匿名公开下载。
 
-本项目没有购买代码签名证书。SHA-256 校验不能替代发布者身份签名；请核对下载仓库与工作流来源。不要建议用户关闭杀毒或 SmartScreen。
+## 能证明什么
 
-Actions 当前使用官方维护的 major 标签；生产长期维护建议审核并固定具体 action commit SHA，以降低上游标签变化风险。SDK 已锁定具体版本。
+CI 无真实游戏。`--layout-selftest` 只证明发布 GUI 能渲染及布局门禁通过，不做真实游戏检查或置顶操作。本地 `--ui-selftest` 才做本机检查及可恢复的置顶往返。隔离缓存测试不上传个人缓存。
+
+全游戏页面、比赛、阻力硬件、成绩上传、长期运行、未来版本和游戏任意边缘拖动缩放不由 CI 保证。未签名，请核对仓库与 SHA-256，不关闭杀毒或 SmartScreen。Actions major 标签仍需后续维护审核，SDK 已锁定版本。

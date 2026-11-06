@@ -1,6 +1,6 @@
 # 验证记录与边界
 
-## 本地代码验证
+## 历史 v0.1.x 本地代码验证
 
 环境：Windows x64，.NET SDK 10.0.403（官方 SDK 包 SHA-512 已核验），GUI/CLI 均已成功编译，warnings-as-errors。
 
@@ -31,13 +31,13 @@ v0.1.0 已由 github-actions[bot] 创建预发布： https://github.com/MengEn-I
 
 ## 明确未覆盖
 
-全游戏页面、比赛/阻力/硬件控制、成绩上传、长期运行、游戏未来版本、其他 SKU、Windows ARM64、恶意同用户进程对抗、已被用户删除的备份。运行包不含第三方汉化资源，也没有代码签名证书。
+全游戏页面、比赛/阻力/硬件控制、成绩上传、长期运行、游戏未来版本、其他 SKU、Windows ARM64、恶意同用户进程对抗、已被用户删除的备份均未覆盖。v0.2.0 已内置三项汉化资源，发布者确认内置分发授权；仍没有代码签名证书。
 
 CI runner 无真实游戏。即使 CI 和 Release 成功，也只能证明构建与测试流水线，不代表游戏运行时所有功能。
 
 ## 0.2.0 竞速座舱界面（本轮）
 
-界面按用户选定的「03 竞速座舱」重写为单一自绘 `CockpitView`：左侧 104px 导航栏、切角横幅与三格遥测、总览三列切角卡片、汉化/窗口/恢复三个详情页，全部坐标经 `DeviceDpi/96` 缩放，窗口从 960×720 到 2560×1440 重排；不再使用 `Region` 圆角或子控件拼装。所有数值都来自真实调用（`Operations.Check`、`GameWindow.Inspect`、`Transactions.Status`、`PayloadStore.Validate`、备份文件 mtime），不是设计稿示例值。
+界面按用户选定的「03 竞速座舱」重写为单一自绘 `CockpitView`：左侧 104px 导航栏、切角横幅与三格遥测、总览三列切角卡片、汉化/窗口/恢复三个详情页，全部坐标经 `DeviceDpi/96` 缩放，已验收布局尺寸为 1280×860、1100×760、960×720；不再使用 `Region` 圆角或子控件拼装。所有数值都来自真实调用（`Operations.Check`、`GameWindow.Inspect`、`Transactions.Status`、`PayloadStore.Validate`、备份文件 mtime），不是设计稿示例值。
 
 自验收入口 `MyWhooshZH.exe --ui-selftest <dir>` 一次完成三件事：
 - 渲染 4 个页面 + 1100×760 小窗 + 960×720 极窄窗，共 6 张 PNG，文字越界自检写入 `ui-selftest.json`。
@@ -50,6 +50,16 @@ CI runner 无真实游戏。即使 CI 和 Release 成功，也只能证明构建
 - 置顶往返：`before=false → afterPin=true → restored=true`（真实游戏窗口句柄），证明置顶位真的生效且可无损还原。
 - `pass=true`。
 
-回归：基础 42 项、隔离缓存集成 43 项全部通过；集成结果为扫描 2063 / 匹配 2060 / 未匹配 3，恢复后 `AllOriginalHashesRestored=true`。
+回归：基础 42 项、隔离缓存集成 43 项全部通过；集成结果为扫描 2063 / 匹配 2060 / 未匹配 3，恢复后 `AllOriginalHashesRestored=true`。该次集成源为已有中文缓存，InstalledFiles=1 / RestoredFiles=1（PAK）；不能将 2060 匹配数描述为本次重新翻译的文件数。游戏配置已设窗口模式，但任意边缘拖动缩放尚无完整真机证据；置顶针对普通桌面环境，不保证对抗其他置顶进程或安全桌面。
 
 窗口最小尺寸降为 960×720，仍在 1100×760 与 960×720 实测无重叠、无裁切。
+
+## v0.2.0 发布门禁
+
+- 发布前新增首次释放、缓存幂等、损坏修复三个内嵌资源测试，发现 courses.json 经 Git 文本换行改写导致固定 SHA-256 不符。恢复合法缓存中的已核验原始资源字节，并对 src/Whoosh.Core/payload/* 设置 -text -eol；固定 PAK 路径加入 Git 跟踪例外。未更改兼容性或资源哈希白名单。
+- 强制重建后基础回归 45 项通过、失败 0；加隔离缓存集成共 46 项通过、失败 0。隔离集成仍为扫描 2063 / 匹配 2060 / 未匹配 3、InstalledFiles=1 / RestoredFiles=1、AllOriginalHashesRestored=true。
+- 自包含 GUI/CLI 发布为 0.2.0；CLI version/help 真实入口通过。
+- 发布 EXE 布局自检 mode=layout-only，四页 + 两窄窗共六张截图，pass=true、文字越界告警全 0；CI 无游戏时不运行游戏检查与置顶往返。
+- 发布 EXE 本机自检 mode=game-integration，pass=true；真实检查 Supported=true、Scanned=2063、Matched=2060、AlreadyChinese=2060、PendingFiles=0；本轮置顶原值已为 true，afterPin=true、restored=true，含义是恢复到原值成功，不是将其变为 false。此前 false→true 往返另见上节。
+- 用户已确认资源内置分发授权，来源和字体许可保留。没有独立授权书附件，未授予任意再分发权。
+- GitHub 发行资产上传、重新下载校验与发布包冒烟结果以 Actions 生成的 release-evidence.json 和 .github/last-release.json 为准；不使用本地 ZIP 哈希代替远端 ZIP。

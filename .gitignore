@@ -6,6 +6,7 @@ artifacts/
 .vs/
 *.user
 *.pak
+!src/Whoosh.Core/payload/MyWhooshChinese_P.pak
 *.exe
 *.dll
 *.zip

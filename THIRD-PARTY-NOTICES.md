@@ -1,23 +1,25 @@
 # 第三方资源与许可证边界
 
-## 上游
+## 社区汉化资源
 
-汉化资源来源：https://github.com/GourmetGodTangNiu/MyWhoosh-Chinese-Patch
+来源：https://github.com/GourmetGodTangNiu/MyWhoosh-Chinese-Patch
 
-本仓库只实现原创的导入、诊断、安装与恢复引擎。运行时从用户本地导入上游 v1.1.0 ZIP 中的 MyWhooshChinese_P.pak、courses.json、categories.json；不加载 CoursePatch.dll，不执行 Installer.ps1 或其他脚本。
+本项目 v0.2.0 内置上游 v1.1.0 的三项数据：`MyWhooshChinese_P.pak`、`courses.json`、`categories.json`。程序只释放和读取 SHA-256 锁定的资源，不加载 `CoursePatch.dll`，不执行上游 EXE、PowerShell 或其他脚本。
 
-现有材料尚不足以确认整体汉化载荷、字典和嵌入资源的再分发许可证，因此**不复制进 Git 仓库、不放入 GitHub Release、不由 Actions 下载或打包这些载荷**。公开可下载不等于可以随意再分发。
+发布者于 2026-11-06 明确确认已获得这三项资源随本项目下载包内置分发的授权，并要求发布内置版。此记录是发布者的授权确认，不是本项目独立核验过的授权书；未附具体许可文本，不能据此宣称资源开源或允许任何使用者任意公开再分发。仓库可见性及访问权限保持原状。
 
-上游 ZIP 中的字体许可文件只说明对应字体的授权，并不自动覆盖整体 PAK、所有翻译或游戏资源。使用者应保留上游原包及其 Licenses 目录。若维护者获得明确授权，再以独立变更记录加入许可与分发机制。
+内置 PAK 所附字体许可与 `FONT-NOTICES.txt` 保留在 `licenses/payload-fonts/`。字体许可只覆盖对应字体，不自动覆盖所有翻译和游戏材料。未来更换资源或扩大分发范围时，应重新核对授权。
 
 ## 平台与商标
 
-MyWhoosh 名称属于相应权利人。本项目非官方，不隶属于或代表 MyWhoosh。没有提供游戏原文件、账号、密钥、系统字体、存档或资源解密能力。
+MyWhoosh 名称属于相应权利人。本项目非官方，不隶属于或代表 MyWhoosh。不包含游戏原主 PAK、账号、密钥、个人存档或资源解密能力。GUI 使用 Windows 已安装字体，不复制系统字体文件。
 
 ## 自包含运行时
 
-Release 使用官方 Microsoft .NET 自包含发布，运行时许可遵循 Microsoft .NET 对应发行物的许可。项目 SDK 来自官方渠道，不使用未知下载站。维护者发布前应保留运行时发行要求的许可证及第三方声明。
+Release 使用官方 Microsoft .NET 自包含发布，保留运行时 `DOTNET-LICENSE.txt` 与 `DOTNET-ThirdPartyNotices.txt`。无需用户安装 .NET 不代表不包含微软运行时及其第三方组件。
 
-## 原创源码
+## 业务依赖与源码
 
-在维护者明确选定许可证前，原创源码不授予开放源码许可证。仓库当前为私有，第三方的原有权利不受其可见性影响。
+无第三方 NuGet 业务依赖，不需要 Python、Node、外部窗口管理器或下载汉化资源才能运行。内置社区资源、系统 API 和微软运行时仍分别遵守对应权利及许可。
+
+在维护者明确选定许可证前，原创源码不额外授予开放源码许可证；第三方既有权利不受仓库可见性影响。

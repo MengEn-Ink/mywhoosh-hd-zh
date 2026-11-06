@@ -29,6 +29,10 @@ internal static class Program
                 RenderPages(args[1]);
                 return 0;
             }
+            if (args.Length >= 2 && args[0] == "--layout-selftest")
+            {
+                return SelfTest(args[1], layoutOnly: true);
+            }
             if (args.Length >= 2 && args[0] == "--ui-selftest")
             {
                 return SelfTest(args[1]);
@@ -74,7 +78,7 @@ internal static class Program
         Console.WriteLine($"极窄: {form.LastWarnings.Count} warnings, {string.Join(" | ", form.LastWarnings)}");
     }
 
-    private static int SelfTest(string dir)
+    private static int SelfTest(string dir, bool layoutOnly = false)
     {
         Directory.CreateDirectory(dir);
         var pages = new List<object>();
@@ -101,11 +105,14 @@ internal static class Program
 
         JsonElement? check = null;
         string? checkError = null;
-        try { check = JsonSerializer.SerializeToElement(Operations.Check(), AppInfo.JsonOptions); }
-        catch (Exception ex) { checkError = ex.Message; }
+        if (!layoutOnly)
+        {
+            try { check = JsonSerializer.SerializeToElement(Operations.Check(), AppInfo.JsonOptions); }
+            catch (Exception ex) { checkError = ex.Message; }
+        }
 
         var topmost = new { found = false, before = false, afterPin = false, restored = false, handle = 0L };
-        IntPtr hwnd = NativeWindow.FindGameWindow("MyWhoosh");
+        IntPtr hwnd = layoutOnly ? IntPtr.Zero : NativeWindow.FindGameWindow("MyWhoosh");
         if (hwnd != IntPtr.Zero)
         {
             bool before = NativeWindow.IsTopmost(hwnd);
@@ -119,11 +126,12 @@ internal static class Program
         }
 
         bool pass = warnings.Count == 0 && smallWarnings.Length == 0 && tinyWarnings.Length == 0
-            && check is { } c && c.TryGetProperty("Supported", out var sup) && sup.GetBoolean()
+            && (layoutOnly || (check is { } c && c.TryGetProperty("Supported", out var sup) && sup.GetBoolean()))
             && (!topmost.found || (topmost.afterPin && topmost.restored));
 
         var report = new
         {
+            mode = layoutOnly ? "layout-only" : "game-integration",
             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             clientSize = "1280x860",
             pages,

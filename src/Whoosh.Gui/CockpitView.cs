@@ -123,7 +123,7 @@ internal sealed class CockpitView : Control
             else
             {
                 using var path = SlabPath(r, P(9));
-                if (_hover == "nav:" + i) g.FillPath(new SolidBrush(Palette.Panel), path);
+                if (_hover == "nav:" + i) { using var fill = new SolidBrush(Palette.Panel); g.FillPath(fill, path); }
                 using var edge = new Pen(Palette.Line);
                 g.DrawPath(edge, path);
             }
@@ -284,12 +284,12 @@ internal sealed class CockpitView : Control
 
         MockWindow(g, new RectangleF(c.X, top, c.Width, mockH));
         float noteY = top + mockH + P(10);
-        Txt(g, "拖动窗口边缘，就能改成任意大小。", c.X, noteY, P(11.5), Palette.Muted, false, c.Width, P(18));
+        Txt(g, "缩放受游戏限制，可选预设。", c.X, noteY, P(11.5), Palette.Muted, false, c.Width, P(18));
 
         float toggleY = noteY + P(34);
         Txt(g, "始终置顶", c.X, toggleY, P(13.5), Palette.Ink, true, c.Width - P(64));
         Switch(g, c.X + c.Width, toggleY + P(1), Topmost, "toggle-topmost");
-        Txt(g, "排在其他窗口前面，不被遮挡。", c.X, toggleY + P(24), P(11), Palette.Muted, false, c.Width, P(16));
+        Txt(g, "置顶期间，请保持助手运行。", c.X, toggleY + P(24), P(11), Palette.Muted, false, c.Width, P(16));
 
         float hintY = toggleY + P(50);
         Hint(g, c.X, hintY, c.Width, "Alt + Enter：游戏内切全屏");
@@ -413,13 +413,13 @@ internal sealed class CockpitView : Control
         float y = c.Y + P(48);
         y = Row(g, c.X, y, c.Width, "当前窗口尺寸", WinW + " × " + WinH);
         y = Row(g, c.X, y, c.Width, "启动模式", Windowed ? "窗口（默认不全屏）" : "全屏 / 无边框");
-        y = Row(g, c.X, y, c.Width, "拖动边缘缩放", "已开启");
+        y = Row(g, c.X, y, c.Width, "拖动边缘缩放", "已请求（游戏决定）");
         y = Row(g, c.X, y, c.Width, "最大化 / 最小化", "已开启");
 
         float toggleY = y + P(10);
         Txt(g, "始终置顶", c.X, toggleY, P(13.5), Palette.Ink, true, c.Width - P(64));
         Switch(g, c.X + c.Width, toggleY + P(1), Topmost, "toggle-topmost");
-        Txt(g, "游戏窗口钉在最前，别的窗口盖不住。", c.X, toggleY + P(24), P(11), Palette.Muted, false, c.Width, P(16));
+        Txt(g, "固定在普通窗口前，助手需保持运行。", c.X, toggleY + P(24), P(11), Palette.Muted, false, c.Width, P(16));
 
         float rowY = toggleY + P(50);
         rowY = Row(g, c.X, rowY, c.Width, "全屏切换（游戏内）", "Alt + Enter");
@@ -428,7 +428,7 @@ internal sealed class CockpitView : Control
 
         float noteY = btnY - P(24);
         if (noteY > rowY + P(6))
-            Txt(g, "需完全退出游戏后应用。游戏里也能直接拖动边框改大小。", c.X, noteY, P(11), Palette.Muted, false, c.Width, P(18));
+            Txt(g, "退出游戏后应用。拖边无效时，请选预设尺寸。", c.X, noteY, P(11), Palette.Muted, false, c.Width, P(18));
 
         float split = MathF.Round(c.Width * 0.5f);
         Button(g, new RectangleF(c.X, btnY, split, btnH), "应用窗口设置", true, "apply-window");
@@ -586,7 +586,7 @@ internal sealed class CockpitView : Control
         Txt(g, WinW.ToString(), sx, ty, P(23), Palette.Ink, true);
         Txt(g, "×", sx + pw + P(9), ty + P(5), P(13), Palette.Muted, true);
         Txt(g, WinH.ToString(), sx + pw + mw + P(18), ty, P(23), Palette.Ink, true);
-        TxtCenter(g, "普通小窗 · 可拖动边缘缩放", new RectangleF(r.X, r.Y + bar + P(48), r.Width, P(18)), P(10), Palette.Muted, false);
+        TxtCenter(g, "普通小窗 · 可拖动标题栏", new RectangleF(r.X, r.Y + bar + P(48), r.Width, P(18)), P(10), Palette.Muted, false);
 
         using (var grip = new Pen(Palette.Dim, P(1)))
             for (int i = 1; i <= 3; i++)

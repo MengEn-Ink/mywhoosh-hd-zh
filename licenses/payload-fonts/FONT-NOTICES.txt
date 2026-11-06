@@ -1,0 +1,17 @@
+Font modification notice
+
+The patch contains modified font payloads under the SIL Open Font License 1.1.
+Original Latin glyphs: The Barlow Project Authors; The Rubik Project Authors.
+Added Chinese glyphs: Noto Sans SC, copyright Adobe, from google/fonts.
+Internal names of modified fonts: MWCN Companion + a per-face identifier.
+Game asset paths are retained solely for compatibility.
+Original Latin glyph outlines and advance widths are preserved.
+Chinese glyphs are subsetted and scaled to the original font units per em.
+No Windows SimHei/Microsoft YaHei glyphs are included in this sharing package.
+
+Sources:
+https://github.com/google/fonts/tree/main/ofl/notosanssc
+https://github.com/google/fonts/tree/main/ofl/barlow
+https://github.com/google/fonts/tree/main/ofl/rubik
+
+See the accompanying OFL license and copyright notices for each family.
