@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version, for example 0.2.1
+        description: Version, for example 0.3.0
         required: true
-        default: '0.2.1'
+        default: '0.3.0'
       prerelease:
         description: Mark as prerelease
         type: boolean
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
-      - name: Validate and build
+      - name: Validate, build and verify installer
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -41,60 +41,15 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: release-bundle
-          path: artifacts/build-*/*.zip
+          path: |
+            artifacts/build-*/*.zip
+            artifacts/build-*/*-setup.exe
+            artifacts/build-*/installer-tests.json
+            artifacts/build-*/quick-layout.json
           if-no-files-found: error
-      - name: Publish immutable version tag and release assets
+      - name: Publish and redownload immutable assets
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           PRE_RELEASE: ${{ inputs.prerelease }}
-        run: |
-          $tag = 'v' + $env:RELEASE_VERSION
-          $bundle = 'artifacts/build-' + $env:RELEASE_VERSION
-          $files = @((Get-ChildItem -LiteralPath $bundle -Filter '*.zip').FullName)
-          $files += (Join-Path $bundle 'SHA256SUMS.txt')
-          $files += (Join-Path $bundle 'tests.json')
-          $files += (Join-Path $bundle 'gui-layout.json')
-          $argsList = @('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',('MyWhoosh HD ZH '+$tag),'--notes-file','docs/RELEASE-NOTES.md')
-          if ($env:PRE_RELEASE -eq 'true') { $argsList += '--prerelease' }
-          $argsList += $files
-          & gh @argsList
-          if ($LASTEXITCODE -ne 0) { throw 'Release failed; existing version is never overwritten' }
-          $json = & gh release view $tag --json assets,url,tagName
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify uploaded release assets' }
-          $info = $json | ConvertFrom-Json
-          $required = @(('mywhoosh-hd-zh-'+$env:RELEASE_VERSION+'-win-x64.zip'),'SHA256SUMS.txt','tests.json','gui-layout.json')
-          foreach ($asset in $required) { if (@($info.assets | Where-Object { $_.name -eq $asset -and $_.state -eq 'uploaded' }).Count -ne 1) { throw ('Missing uploaded asset: '+$asset) } }
-          $verifyDir = Join-Path $bundle 'remote-verification'
-          & gh release download $tag --pattern ('mywhoosh-hd-zh-'+$env:RELEASE_VERSION+'-win-x64.zip') --dir $verifyDir
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot redownload release ZIP' }
-          $zipName = 'mywhoosh-hd-zh-'+$env:RELEASE_VERSION+'-win-x64.zip'
-          $downloadedZip = Join-Path $verifyDir $zipName
-          $expectedHash = (Get-FileHash -LiteralPath (Join-Path $bundle $zipName) -Algorithm SHA256).Hash.ToLowerInvariant()
-          $downloadHash = (Get-FileHash -LiteralPath $downloadedZip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($downloadHash -ne $expectedHash) { throw 'Redownloaded ZIP hash mismatch' }
-          $unpacked = Join-Path $verifyDir 'unpacked'
-          Expand-Archive -LiteralPath $downloadedZip -DestinationPath $unpacked
-          $cliVersion = & (Join-Path $unpacked 'whoosh-zh.exe') version
-          if ($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $env:RELEASE_VERSION) { throw 'Redownloaded CLI version failed' }
-          $payloadDir = Join-Path $verifyDir 'isolated-payload'
-          $payloadJson = & (Join-Path $unpacked 'whoosh-zh.exe') payload-selftest --directory $payloadDir
-          if ($LASTEXITCODE -ne 0) { throw 'Redownloaded CLI payload selftest failed' }
-          $payloadResult = $payloadJson | ConvertFrom-Json
-          if (-not $payloadResult.pass -or $payloadResult.version -ne $env:RELEASE_VERSION) { throw 'Redownloaded resource/version verification failed' }
-          $uiDir = Join-Path $verifyDir 'gui-layout'
-          $uiProc = Start-Process -FilePath (Join-Path $unpacked 'MyWhooshZH.exe') -ArgumentList @('--layout-selftest',('"'+$uiDir+'"')) -Wait -PassThru -WindowStyle Hidden
-          if ($uiProc.ExitCode -ne 0) { throw 'Redownloaded GUI selftest failed' }
-          $uiResult = Get-Content -LiteralPath (Join-Path $uiDir 'ui-selftest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-          if (-not $uiResult.pass -or -not $uiResult.payloadTest.pass -or $uiResult.payloadTest.version -ne $env:RELEASE_VERSION -or $uiResult.interactions.passed -lt 13 -or @($uiResult.stressViews).Count -ne 16) { throw 'Redownloaded GUI report failed' }
-          $verification = @{ zipSha256=$downloadHash; redownloadHashMatches=$true; cliVersion=$cliVersion.Trim(); guiLayoutPass=$uiResult.pass; payloadSelftestPass=$payloadResult.pass; guiPayloadSelftestPass=$uiResult.payloadTest.pass; guiInteractions=$uiResult.interactions.passed; stressViews=@($uiResult.stressViews).Count }
-          $result = @{ tag=$tag; releaseUrl=$info.url; runUrl=('https://github.com/'+$env:GITHUB_REPOSITORY+'/actions/runs/'+$env:GITHUB_RUN_ID); commit=$env:GITHUB_SHA; assets=$info.assets; verification=$verification } | ConvertTo-Json -Depth 12
-          [IO.File]::WriteAllText('release-evidence.json',$result,(New-Object Text.UTF8Encoding $false))
-          & gh release upload $tag 'release-evidence.json'
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot upload release evidence' }
-          $recordPath = 'repos/'+$env:GITHUB_REPOSITORY+'/contents/.github/last-release.json'
-          $previousSha = & gh api $recordPath --jq '.sha' 2>$null
-          $put = @('api','--method','PUT',$recordPath,'-f',('message=ci: record verified assets for '+$tag),'-f',('content='+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($result))),'-f','branch=main')
-          if ($LASTEXITCODE -eq 0 -and $previousSha) { $put += @('-f',('sha='+$previousSha)) }
-          & gh @put
-          if ($LASTEXITCODE -ne 0) { throw 'Cannot record release evidence in repository' }
+        run: ./scripts/publish-release.ps1 -Version $env:RELEASE_VERSION -PreRelease ($env:PRE_RELEASE -eq 'true')

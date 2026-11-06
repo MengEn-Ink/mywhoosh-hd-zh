@@ -17,12 +17,16 @@ jobs:
           global-json-file: global.json
       - name: Build, test and package
         shell: pwsh
-        run: ./scripts/build.ps1 -Version ((Get-Content -LiteralPath 'release-version.txt' -Raw -Encoding UTF8).Trim())
+        run: ./scripts/build.ps1 -Version ([xml](Get-Content -LiteralPath 'Directory.Build.props' -Raw -Encoding UTF8)).Project.PropertyGroup.Version
       - uses: actions/upload-artifact@v4
         with:
           name: mywhoosh-hd-zh-win-x64
           path: |
             artifacts/build-*/*.zip
+            artifacts/build-*/*-setup.exe
+            artifacts/build-*/quick-layout.json
+            artifacts/build-*/quick-layout/*.png
+            artifacts/build-*/installer-tests.json
             artifacts/build-*/SHA256SUMS.txt
             artifacts/build-*/tests.json
             artifacts/build-*/gui-layout.json
