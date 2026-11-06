@@ -1,4 +1,4 @@
-param([string]$Version='0.2.0',[string]$Dotnet='dotnet')
+param([string]$Version='0.3.0',[string]$Dotnet='dotnet',[string]$InnoCompiler='')
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 if($Version -notmatch '^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$'){throw 'Invalid release version'}
@@ -36,11 +36,38 @@ $layout=Get-Content -LiteralPath $layoutReport -Raw -Encoding UTF8 | ConvertFrom
 if(-not $layout.pass -or $layout.payloadTest.version -ne $Version -or $layout.mode -ne 'layout-only' -or @($layout.pages).Count -ne 4 -or @($layout.warnings).Count -ne 0 -or @($layout.smallView.warnings).Count -ne 0 -or @($layout.tinyView.warnings).Count -ne 0){throw 'GUI layout verification failed'}
 if(@(Get-ChildItem -LiteralPath $layoutDir -Filter '*.png' -File).Count -ne 25 -or @($layout.stressViews).Count -ne 16 -or -not $layout.payloadTest.pass -or -not $layout.interactions.pass -or $layout.interactions.passed -lt 13){throw 'GUI stress/interaction screenshots incomplete'}
 Copy-Item -LiteralPath $layoutReport -Destination (Join-Path $out 'gui-layout.json')
+$quickDir=Join-Path $out 'quick-layout'
+$quick=Start-Process -FilePath (Join-Path $bundle 'MyWhooshZH.exe') -ArgumentList @('--quick-selftest',('"'+$quickDir+'"')) -Wait -PassThru -WindowStyle Hidden
+if($quick.ExitCode -ne 0){throw 'Published floating panel test failed'}
+$q=Get-Content -LiteralPath (Join-Path $quickDir 'quick-selftest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+if(-not $q.pass -or $q.passed -lt 8){throw 'Floating panel report failed'}
+Copy-Item -LiteralPath (Join-Path $quickDir 'quick-selftest.json') -Destination (Join-Path $out 'quick-layout.json')
 $hashes=Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName | ForEach-Object {((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())+'  '+$_.FullName.Substring($bundle.Length+1).Replace('\','/')}
 [IO.File]::WriteAllLines((Join-Path $bundle 'SHA256SUMS.txt'),$hashes,(New-Object Text.UTF8Encoding $false))
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip=Join-Path $out ('mywhoosh-hd-zh-'+$Version+'-win-x64.zip')
 [IO.Compression.ZipFile]::CreateFromDirectory($bundle,$zip)
 $zipHash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-[IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS.txt'),$zipHash+'  '+[IO.Path]::GetFileName($zip)+"`n",(New-Object Text.UTF8Encoding $false))
+if(-not $InnoCompiler){
+  $candidate=@('C:\Program Files (x86)\Inno Setup 6\ISCC.exe','C:\Program Files\Inno Setup 6\ISCC.exe') | Where-Object {Test-Path -LiteralPath $_ -PathType Leaf} | Select-Object -First 1
+  if($candidate){$InnoCompiler=$candidate}else{throw 'Inno Setup 6 compiler required for installer release'}
+}
+& $InnoCompiler '/Qp' ('/DAppVersion='+$Version) ('/DBundleDir='+$bundle) ('/DBuildOutput='+$out) (Join-Path $root 'scripts\installer.iss')
+if($LASTEXITCODE -ne 0){throw 'Installer compilation failed'}
+$setup=Join-Path $out ('mywhoosh-hd-zh-'+$Version+'-win-x64-setup.exe')
+if(-not(Test-Path -LiteralPath $setup -PathType Leaf)){throw 'Setup missing'}
+if($env:GITHUB_ACTIONS -eq 'true'){
+  $testSetup=Join-Path $out 'installer-isolated-test.exe'
+  $baseline=Join-Path $out 'installer-baseline-test.exe'
+  & $InnoCompiler '/Qp' '/DIsolatedTest=1' '/DAppVersion=0.2.9' ('/DBundleDir='+$bundle) ('/DBuildOutput='+$out) (Join-Path $root 'scripts\installer.iss')
+  if($LASTEXITCODE -ne 0){throw 'Baseline installer compilation failed'}
+  Move-Item -LiteralPath $testSetup -Destination $baseline
+  & $InnoCompiler '/Qp' '/DIsolatedTest=1' ('/DAppVersion='+$Version) ('/DBundleDir='+$bundle) ('/DBuildOutput='+$out) (Join-Path $root 'scripts\installer.iss')
+  if($LASTEXITCODE -ne 0){throw 'Isolated installer compilation failed'}
+  & (Join-Path $root 'scripts\test-installer.ps1') -Setup $testSetup -BaselineSetup $baseline -Version $Version -Output (Join-Path $out 'installer-integration')
+  Copy-Item -LiteralPath (Join-Path $out 'installer-integration\installer-tests.json') -Destination (Join-Path $out 'installer-tests.json')
+}
+$setupHash=(Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+[IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS.txt'),$zipHash+'  '+[IO.Path]::GetFileName($zip)+"`n"+$setupHash+'  '+[IO.Path]::GetFileName($setup)+"`n",(New-Object Text.UTF8Encoding $false))
 Write-Output ('RELEASE_ZIP='+$zip)
+Write-Output ('RELEASE_SETUP='+$setup)

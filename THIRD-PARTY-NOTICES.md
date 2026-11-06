@@ -18,6 +18,10 @@ MyWhoosh 名称属于相应权利人。本项目非官方，不隶属于或代�
 
 Release 使用官方 Microsoft .NET 自包含发布，保留运行时 `DOTNET-LICENSE.txt` 与 `DOTNET-ThirdPartyNotices.txt`。无需用户安装 .NET 不代表不包含微软运行时及其第三方组件。
 
+## 安装程序
+
+标准Setup.exe由Inno Setup 6编译，Inno只用于开发/CI打包，用户无需安装编译器。安装器及卸载器保留原版权与地址，许可文本见 `licenses/INNO-SETUP-LICENSE.txt`，来源 https://jrsoftware.org/ 与 https://github.com/jrsoftware/issrc 。本项目不声称原创Inno安装引擎。
+
 ## 业务依赖与源码
 
 无第三方 NuGet 业务依赖，不需要 Python、Node、外部窗口管理器或下载汉化资源才能运行。内置社区资源、系统 API 和微软运行时仍分别遵守对应权利及许可。

@@ -1,16 +1,18 @@
 # MyWhoosh HD ZH · 竞速座舱
 
-原生 Windows 中文助手，**v0.2.1 内置资源版**。装中文、调小窗、始终置顶、回退英文，集中在一个简单面板里。
+原生 Windows 中文助手，**v0.3.0 标准安装＋快捷浮窗版**。装中文、调小窗、始终置顶、回退英文，集中在一个简单面板里。
 
 仅支持已实测的 Windows x64 商店构建：MyWhoosh HD **6.2.3.0** / `MyWhooshTechnologyService.644173E064ED2`。包族、版本或主资源哈希不同会停止安装，不靠关闭校验硬装。
 
-## v0.2.1 更新
+## v0.3.0 更新
 
-检查与安装分离、真实版本/置顶状态、三条 Varied Tempo #1 精确增补、保留首次备份的增量事务、窗口多文件中断恢复、旧账本迁移回归全部进入此版。新增明确的汉化/窗口中断处理入口、完整长提示、CLI参数严格校验及发布EXE资源首次运行/修复门禁。旧v0.2.0下载包保持原样，升级请使用新的EXE并保留AppData中的备份。
+新增标准安装向导：当前用户安装到硬盘、可选独立目录、桌面/开始菜单快捷图标、系统卸载入口。新增快捷浮窗和系统托盘，快速开关游戏置顶、选择尺寸、打开主面板；关闭面板收起，托盘明确退出才停止助手。安装/卸载不改变游戏，卸载保留汉化备份，默认不开机自启。v0.2.1的增量事务与安全回退全部保留。
 
 ## 下载和使用
 
-到 [v0.2.1 发布页](https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.2.1)，下载 **mywhoosh-hd-zh-0.2.1-win-x64.zip**（不是 Source code），完整解压后双击 **MyWhooshZH.exe**。
+到 [v0.3.0 发布页](https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.3.0)，普通用户下载 **mywhoosh-hd-zh-0.3.0-win-x64-setup.exe**，双击按向导安装。默认 `%LOCALAPPDATA%\Programs\MyWhooshHdZh`，无需管理员权限，可选独立安装目录。
+
+桌面/开始菜单的「MyWhoosh 中文助手」打开主面板，「MyWhoosh 快捷浮窗」打开小面板。也保留 **mywhoosh-hd-zh-0.3.0-win-x64.zip** 便携版；完整解压后运行EXE。Source code不是运行包。
 
 1. 打开游戏，让训练列表加载完成，再退出游戏。
 2. 打开中文助手，点「检查中文状态」→「安装 / 更新中文」。资源已内置，不用另外找汉化 ZIP。
@@ -22,6 +24,8 @@
 
 ## 功能
 
+- **标准安装/卸载**：仅当前账户安装，桌面/开始菜单两个入口，不自动汉化、不设置开机自启；卸载保留AppData备份和游戏当前状态。
+- **快捷浮窗＋托盘**：独立可拖小面板、实际置顶状态、尺寸草稿与确认应用。关闭面板收起到托盘；托盘退出停止助手。重复打开激活同一实例。
 - **03 竞速座舱界面**：深海军蓝、荧光黄、切角面板；总览、汉化、窗口、恢复四页，短句按钮与真实状态。
 - **窗口模式**：应用后写入 `FullscreenMode=2`，关闭独占全屏默认配置；支持尺寸预设、标准标题栏移动和游戏允许的边缘缩放。
 - **置顶守护**：每 2.5 秒重新置顶游戏窗口，面向普通桌面软件；可随时关闭。
@@ -39,6 +43,8 @@
 - 代码未签名。请核对下载来源与 SHA-256，不要关闭杀毒或 SmartScreen。仓库访问权限保持不变，私有仓库下载需已有读取权限。
 
 ## 验证
+
+安装编译使用Inno Setup 6，仅为开发/CI工具，不是用户依赖。CI额外验证安装器的隔离AppId、快捷方式目标/浮窗参数、版本元数据升级、重复安装、卸载与未知文件保留，并运行安装目录下的GUI浮窗自检。测试不把生产安装器安装到用户电脑。
 
 发布构建跑83项基础/专项/真实子进程中断回归、发布EXE version/help、GUI/CLI各自的内嵌资源首次释放/缓存幂等/损坏修复、25张GUI布局截图和13项点击分发，再生成ZIP与SHA256SUMS。
 
@@ -64,7 +70,9 @@ docs/               新手、架构、更新、验证及发行说明
 ```powershell
 dotnet build src/Whoosh.Gui/Whoosh.Gui.csproj -c Release
 dotnet run --project tests/Whoosh.Tests/Whoosh.Tests.csproj -c Release
-./scripts/build.ps1 -Version 0.2.1
+./scripts/build.ps1 -Version 0.3.0 -InnoCompiler 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+./MyWhooshZH.exe --floating
+./MyWhooshZH.exe --quick-selftest ./quick-test
 ./MyWhooshZH.exe --layout-selftest ./layout-test
 ./MyWhooshZH.exe --ui-selftest ./game-test
 ./whoosh-zh.exe check

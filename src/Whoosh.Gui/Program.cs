@@ -37,7 +37,13 @@ internal static class Program
             {
                 return SelfTest(args[1]);
             }
-            Application.Run(new MainForm());
+            if(args.Length==2&&args[0]=="--quick-selftest")return QuickTests.Run(args[1]);
+            bool floating=args.Length==1&&args[0]=="--floating";
+            if(args.Length>0&&!floating)throw new ArgumentException("未知GUI参数。");
+            using var mutex=new Mutex(true,"Local\\MyWhooshHdZh.Desktop",out bool first);
+            if(!first){DesktopContext.Signal(floating);return 0;}
+            try{using var context=new DesktopContext(floating);Application.Run(context);}
+            finally{mutex.ReleaseMutex();}
             return 0;
         }
         catch (Exception ex)
@@ -227,6 +233,10 @@ internal sealed class MainForm : Form
 
     private readonly GuiBackend _backend;
     internal bool IsWorking => _busy;
+    internal event Action? StateChanged;
+    internal event Action? FloatingRequested;
+    internal Func<bool>? HideToTray { get; set; }
+    internal void DispatchQuick(string action)=>OnAction(action);
     internal CockpitView View => _view;
     private readonly bool _capture;
     public MainForm(GuiBackend? backend = null,bool capture = false)
@@ -234,6 +244,7 @@ internal sealed class MainForm : Form
         _capture=capture;
         _backend=backend??new GuiBackend();
         Text = "MyWhoosh HD 中文助手 · 竞速座舱";
+        Icon=AppIcon.Load();
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Palette.Bg;
         ForeColor = Palette.Ink;
@@ -252,6 +263,11 @@ internal sealed class MainForm : Form
         FormClosing += (_, e) =>
         {
             if(_busy){e.Cancel=true;return;}
+            if(e.CloseReason==CloseReason.UserClosing && HideToTray!=null)
+            {
+                if(!_backend.TestMode&&!_capture&&WindowState==FormWindowState.Normal)new UiState{Width=ClientSize.Width,Height=ClientSize.Height}.Save();
+                if(HideToTray.Invoke()){e.Cancel=true;return;}
+            }
             if (_backend.TestMode || _capture || WindowState != FormWindowState.Normal) return;
             new UiState { Width = ClientSize.Width, Height = ClientSize.Height }.Save();
         };
@@ -323,10 +339,11 @@ internal sealed class MainForm : Form
     }
     private void RefreshRuntime()
     {
-        if(_backend.TestMode)return;
+        if(_backend.TestMode){StateChanged?.Invoke();return;}
         var h=NativeWindow.FindGameWindow("MyWhoosh");_view.GameRunning=h!=IntPtr.Zero;
         _view.ActualTopmost=h==IntPtr.Zero?null:NativeWindow.IsTopmost(h);
         var size=NativeWindow.ClientSize(h);_view.ActualSize=size is {} v?$"{v.Width} × {v.Height}":"未启动";
+        StateChanged?.Invoke();
         _view.Invalidate();
     }
 
@@ -373,6 +390,8 @@ internal sealed class MainForm : Form
                     _view.Page = (CockpitPage)int.Parse(action[4..]);
                     _view.Invalidate();
                     return;
+                case "floating":
+                    FloatingRequested?.Invoke();return;
                 case "help":
                     if(!_backend.TestMode)MessageBox.Show(this,"装中文：先退出游戏，点检查，再点安装 / 更新。\n新课程：退出游戏后再检查，新增内容可增量更新。\n还显示英文：核对同一账户、游戏构建、课程匹配，再重启。\n小窗：选预设尺寸，应用后重启；拖边能力由游戏决定。\n置顶：保持助手运行；看实际置顶，不只看开关。\n回英文：保留备份，恢复只撤销已记录的汉化。\n\nWorkouts：单次课程；Training Plans：多周计划。\nPower Source：功率来源；Controllable：可控阻力。\nERG：目标功率控制；FTP：训练功率基准。\nSave / Upload：保存 / 上传；Discard：丢弃。\n\n分享问题时只提供脱敏诊断，不上传存档或整个 AppData。", "上手帮助与术语", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
@@ -410,10 +429,10 @@ internal sealed class MainForm : Form
                     return;
                 case "apply-window":
                     if (!Confirm("应用窗口设置？", $"将游戏改为窗口模式，尺寸 {_view.WinW} × {_view.WinH}。\n需要先完全退出游戏，改完重新打开生效。")) return;
-                    await Execute("window", "窗口", () => GameWindow.Enable(_view.WinW, _view.WinH, _view.Topmost, 2));
+                    await Execute("window", "窗口", () => _backend.ApplyWindow(_view.WinW, _view.WinH, _view.Topmost));
                     return;
                 case "toggle-topmost":
-                    await Execute("topmost", "置顶", () => GameWindow.SetTopmost(!_view.Topmost));
+                    await Execute("topmost", "置顶", () => _backend.SetTopmost(!_view.Topmost));
                     return;
                 case "restore":
                     if (!Confirm("恢复原版英文？", "只撤销本工具写入的中文界面与课程译文，\n收藏、成绩和之后的训练记录会保留。")) return;
@@ -440,6 +459,7 @@ internal sealed class MainForm : Form
     {
         _view.Busy = true;
         _busy = true;
+        StateChanged?.Invoke();
         _view.Invalidate();
         try
         {

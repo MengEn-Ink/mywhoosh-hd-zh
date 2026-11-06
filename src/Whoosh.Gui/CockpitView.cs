@@ -150,6 +150,8 @@ internal sealed class CockpitView : Control
         }
 
         float st = h - P(132);
+        Txt(g,"快捷浮窗",lx,st-P(38),P(10.5),Palette.Accent,false,RailW-P(24));
+        Hit(lx-P(4),st-P(44),RailW-P(20),P(30),"floating");
         using (var dot = new SolidBrush(Palette.Accent)) g.FillEllipse(dot, lx, st + P(2), P(6), P(6));
         Txt(g, Busy ? "处理中" : "已就绪", lx + P(11), st - P(3), P(10), Palette.Ink, false, RailW - lx - P(14));
         Txt(g, "本地 · 离线", lx, st + P(18), P(9.5), Palette.Dim, false, RailW - lx - P(12));
