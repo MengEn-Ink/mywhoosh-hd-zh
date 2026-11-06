@@ -10,3 +10,5 @@
 src/Whoosh.Core/payload/* -text -eol -diff
 # Preserve upstream license notices verbatim.
 licenses/payload-fonts/* -text -eol -diff
+# Actions writes evidence with CRLF; preserve provider bytes to avoid false dirty status.
+.github/last-release.json -text -eol -diff
