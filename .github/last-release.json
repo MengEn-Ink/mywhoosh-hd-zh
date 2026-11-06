@@ -1,70 +1,74 @@
 {
-  "runUrl": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/actions/runs/42141277742",
+  "tag": "v0.2.1",
+  "releaseUrl": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.2.1",
+  "runUrl": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/actions/runs/42238799532",
   "assets": [
     {
-      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/715426674",
+      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/717518403",
       "contentType": "application/json",
-      "createdAt": "2026-11-06T01:05:41Z",
-      "digest": "sha256:abad1fcbda55e4585ab2faac76b3e9173d7193cca500eeaf7f16666faee64610",
+      "createdAt": "2026-11-06T15:00:41Z",
+      "digest": "sha256:8ea447a6e2757b0f4a987bfd80d322f26e2449fa59ae0645c8fe6848adba13da",
       "downloadCount": 0,
-      "id": "RA_kwDOVb_6CM4qpIty",
+      "id": "RA_kwDOVb_6CM4qxHZD",
       "label": "",
       "name": "gui-layout.json",
-      "size": 872,
+      "size": 5254,
       "state": "uploaded",
-      "updatedAt": "2026-11-06T01:05:42Z",
-      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.0/gui-layout.json"
+      "updatedAt": "2026-11-06T15:00:41Z",
+      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.1/gui-layout.json"
     },
     {
-      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/715426676",
+      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/717518402",
       "contentType": "application/zip",
-      "createdAt": "2026-11-06T01:05:41Z",
-      "digest": "sha256:2bbdf4a1be9cb2504110e86ed82760c4039836d10b9bb20685b9819423da082c",
+      "createdAt": "2026-11-06T15:00:41Z",
+      "digest": "sha256:cc76ebde26166a61434d735b268a78ffa6a304e486da704a5311275ef81f5f03",
       "downloadCount": 0,
-      "id": "RA_kwDOVb_6CM4qpIt0",
+      "id": "RA_kwDOVb_6CM4qxHZC",
       "label": "",
-      "name": "mywhoosh-hd-zh-0.2.0-win-x64.zip",
-      "size": 101909322,
+      "name": "mywhoosh-hd-zh-0.2.1-win-x64.zip",
+      "size": 101944011,
       "state": "uploaded",
-      "updatedAt": "2026-11-06T01:05:46Z",
-      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.0/mywhoosh-hd-zh-0.2.0-win-x64.zip"
+      "updatedAt": "2026-11-06T15:00:44Z",
+      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.1/mywhoosh-hd-zh-0.2.1-win-x64.zip"
     },
     {
-      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/715426669",
+      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/717518401",
       "contentType": "text/plain; charset=utf-8",
-      "createdAt": "2026-11-06T01:05:41Z",
-      "digest": "sha256:119c4ee267b411eb8ffff64acb3d26bb6100846a780e3aadbacd6aaa88bb7a47",
+      "createdAt": "2026-11-06T15:00:41Z",
+      "digest": "sha256:786b1d3481b119d9504ea922393e2e28337886db9461cbbcf35e5e9d7d389520",
       "downloadCount": 0,
-      "id": "RA_kwDOVb_6CM4qpItt",
+      "id": "RA_kwDOVb_6CM4qxHZB",
       "label": "",
       "name": "SHA256SUMS.txt",
       "size": 99,
       "state": "uploaded",
-      "updatedAt": "2026-11-06T01:05:41Z",
-      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.0/SHA256SUMS.txt"
+      "updatedAt": "2026-11-06T15:00:41Z",
+      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.1/SHA256SUMS.txt"
     },
     {
-      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/715426672",
+      "apiUrl": "https://api.github.com/repos/MengEn-Ink/mywhoosh-hd-zh/releases/assets/717518400",
       "contentType": "application/json",
-      "createdAt": "2026-11-06T01:05:41Z",
-      "digest": "sha256:23b009447b2c8f119f6addadeb511f03791c463c001d95a9b2cbc0d2e373e0b9",
+      "createdAt": "2026-11-06T15:00:41Z",
+      "digest": "sha256:5ddf9780bd773f1905290d501aca54afc1f8420a1cfc22bb4f03b190ac74eca0",
       "downloadCount": 0,
-      "id": "RA_kwDOVb_6CM4qpItw",
+      "id": "RA_kwDOVb_6CM4qxHZA",
       "label": "",
       "name": "tests.json",
       "size": 55,
       "state": "uploaded",
-      "updatedAt": "2026-11-06T01:05:42Z",
-      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.0/tests.json"
+      "updatedAt": "2026-11-06T15:00:41Z",
+      "url": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/download/v0.2.1/tests.json"
     }
   ],
   "verification": {
-    "guiLayoutPass": true,
-    "cliVersion": "0.2.0",
     "redownloadHashMatches": true,
-    "zipSha256": "2bbdf4a1be9cb2504110e86ed82760c4039836d10b9bb20685b9819423da082c"
+    "payloadSelftestPass": true,
+    "guiPayloadSelftestPass": true,
+    "guiInteractions": 13,
+    "guiLayoutPass": true,
+    "zipSha256": "cc76ebde26166a61434d735b268a78ffa6a304e486da704a5311275ef81f5f03",
+    "stressViews": 16,
+    "cliVersion": "0.2.1"
   },
-  "commit": "523804779181945f0b1203b44a4ed01559edff98",
-  "tag": "v0.2.0",
-  "releaseUrl": "https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.2.0"
+  "commit": "c783cb4468a29c8d79962711ccdb8d86c8afba22"
 }
