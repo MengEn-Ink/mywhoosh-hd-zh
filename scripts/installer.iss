@@ -120,7 +120,8 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  Dir, StateDir, Owner: String;
+  Dir, StateDir: String;
+  Owner: AnsiString;
   Rec: TFindRec;
 begin
   Result := '';
