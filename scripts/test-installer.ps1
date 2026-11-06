@@ -20,24 +20,36 @@ if((Get-Content -LiteralPath (Join-Path $app 'user-keep.txt') -Raw -Encoding UTF
 if(-not(Test-Path -LiteralPath $key)){throw 'Uninstall registration absent'}
 $reg=Get-ItemProperty -LiteralPath $key
 if($reg.DisplayVersion -ne $Version -or $reg.InstallLocation.TrimEnd('\') -ne $app){throw 'Installed registry version/path wrong'}
-$wsh=New-Object -ComObject WScript.Shell
-$links=Get-ChildItem -LiteralPath $shortcuts -File -Filter '*.lnk'
-if($links.Count -ne 2){throw 'Shortcuts missing'}
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+[ComImport, Guid("00021401-0000-0000-C000-000000000046")] class ShellLink {}
+[ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IShellLinkW {
+ void GetPath([Out,MarshalAs(UnmanagedType.LPWStr)] StringBuilder p,int c,IntPtr data,uint f);
+ void GetIDList(out IntPtr p);void SetIDList(IntPtr p);
+ void GetDescription([Out,MarshalAs(UnmanagedType.LPWStr)] StringBuilder p,int c);void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string p);
+ void GetWorkingDirectory([Out,MarshalAs(UnmanagedType.LPWStr)] StringBuilder p,int c);void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string p);
+ void GetArguments([Out,MarshalAs(UnmanagedType.LPWStr)] StringBuilder p,int c);void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string p);
+ void GetHotkey(out short p);void SetHotkey(short p);void GetShowCmd(out int p);void SetShowCmd(int p);
+ void GetIconLocation([Out,MarshalAs(UnmanagedType.LPWStr)] StringBuilder p,int c,out int i);void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string p,int i);
+ void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string p,uint f);void Resolve(IntPtr h,uint f);void SetPath([MarshalAs(UnmanagedType.LPWStr)] string p);
+}
 public static class InstallerPaths {
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern uint GetLongPathName(string p, StringBuilder b, uint n);
  public static string Long(string p) { var b=new StringBuilder(32768);uint n=GetLongPathName(p,b,(uint)b.Capacity);if(n==0 || n>=b.Capacity)throw new System.IO.IOException("Cannot resolve shortcut path: "+p);return b.ToString(); }
+ public static string[] Link(string p) { object o=new ShellLink();try { ((IPersistFile)o).Load(p,0);var l=(IShellLinkW)o;var t=new StringBuilder(32768);var a=new StringBuilder(32768);var w=new StringBuilder(32768);l.GetPath(t,t.Capacity,IntPtr.Zero,0);l.GetArguments(a,a.Capacity);l.GetWorkingDirectory(w,w.Capacity);return new[]{t.ToString(),a.ToString(),w.ToString()}; }finally{Marshal.ReleaseComObject(o);} }
 }
 '@
+$links=Get-ChildItem -LiteralPath $shortcuts -File -Filter '*.lnk'
+if($links.Count -ne 2){throw 'Shortcuts missing'}
 foreach($link in $links){
-  $s=$wsh.CreateShortcut($link.FullName)
-  $target=[InstallerPaths]::Long($s.TargetPath)
+  $s=[InstallerPaths]::Link($link.FullName)
+  $target=[InstallerPaths]::Long($s[0])
   $expected=[InstallerPaths]::Long((Join-Path $app 'MyWhooshZH.exe'))
-  if($target -ne $expected){throw ('Shortcut target wrong: actual='+$s.TargetPath+' resolved='+$target+' expected='+$expected)}
-  if($link.BaseName.Contains('浮窗') -and $s.Arguments -ne '--floating'){throw ('Floating shortcut arguments wrong: '+$s.Arguments)}
+  if($target -ne $expected -or [InstallerPaths]::Long($s[2]) -ne [InstallerPaths]::Long($app)){throw ('Shortcut target/workdir wrong: '+($s -join '|'))}
+  if($link.BaseName.Contains('浮窗') -and $s[1] -ne '--floating'){throw ('Floating shortcut arguments wrong: '+$s[1])}
 }
 $cliVersion=& (Join-Path $app 'whoosh-zh.exe') version
 if($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $Version){throw 'Installed CLI version failed'}
