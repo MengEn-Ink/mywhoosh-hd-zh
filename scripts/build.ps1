@@ -1,4 +1,4 @@
-param([string]$Version='0.3.0',[string]$Dotnet='dotnet',[string]$InnoCompiler='')
+param([string]$Version='0.3.1',[string]$Dotnet='dotnet',[string]$InnoCompiler='')
 $ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 if($Version -notmatch '^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$'){throw 'Invalid release version'}
@@ -42,6 +42,12 @@ if($quick.ExitCode -ne 0){throw 'Published floating panel test failed'}
 $q=Get-Content -LiteralPath (Join-Path $quickDir 'quick-selftest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
 if(-not $q.pass -or $q.passed -lt 8){throw 'Floating panel report failed'}
 Copy-Item -LiteralPath (Join-Path $quickDir 'quick-selftest.json') -Destination (Join-Path $out 'quick-layout.json')
+$performanceDir=Join-Path $out 'performance-test'
+$performance=Start-Process -FilePath (Join-Path $bundle 'MyWhooshZH.exe') -ArgumentList @('--performance-selftest',('"'+$performanceDir+'"')) -Wait -PassThru -WindowStyle Hidden
+if($performance.ExitCode -ne 0){throw 'Published GUI responsiveness test failed'}
+$performanceReport=Get-Content -LiteralPath (Join-Path $performanceDir 'performance-tests.json') -Raw -Encoding UTF8|ConvertFrom-Json
+if(-not $performanceReport.pass -or $performanceReport.passed -lt 6){throw 'Performance report incomplete'}
+Copy-Item -LiteralPath (Join-Path $performanceDir 'performance-tests.json') -Destination (Join-Path $out 'performance-tests.json')
 $hashes=Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName | ForEach-Object {((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())+'  '+$_.FullName.Substring($bundle.Length+1).Replace('\','/')}
 [IO.File]::WriteAllLines((Join-Path $bundle 'SHA256SUMS.txt'),$hashes,(New-Object Text.UTF8Encoding $false))
 Add-Type -AssemblyName System.IO.Compression.FileSystem

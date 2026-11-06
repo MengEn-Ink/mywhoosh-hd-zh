@@ -38,6 +38,8 @@ internal static class Program
                 return SelfTest(args[1]);
             }
             if(args.Length==2&&args[0]=="--quick-selftest")return QuickTests.Run(args[1]);
+            if(args.Length==2&&args[0]=="--performance-selftest")return PerformanceTests.Run(args[1]);
+            if(args.Length==2&&args[0]=="--readonly-responsiveness")return PerformanceTests.ReadOnly(args[1]);
             bool floating=args.Length==1&&args[0]=="--floating";
             if(args.Length>0&&!floating)throw new ArgumentException("未知GUI参数。");
             using var mutex=new Mutex(true,"Local\\MyWhooshHdZh.Desktop",out bool first);
@@ -223,18 +225,22 @@ internal sealed class UiState
 internal sealed class MainForm : Form
 {
     private readonly CockpitView _view;
-    private readonly System.Windows.Forms.Timer _guard = new() { Interval = 2500 };
-    private readonly System.Windows.Forms.Timer _refresh = new() { Interval = 5000 };
-    private IntPtr _gameHwnd;
-    private DateTime _lastLookup = DateTime.MinValue;
+    private readonly System.Windows.Forms.Timer _refresh = new() { Interval = 500 };
+    private bool _runtimeBusy;
+    private bool _loadingState;
+    private long _runtimeEpoch;
+    private readonly object _runtimeGate=new();
     private bool _busy;
     private bool _sizeDraft;
     private bool _checkPassed;
 
     private readonly GuiBackend _backend;
-    internal bool IsWorking => _busy;
+    internal bool IsWorking => _busy || _loadingState;
     internal event Action? StateChanged;
     internal event Action? FloatingRequested;
+    internal event Action<string>? Failure;
+    internal Func<IWin32Window?>? DialogOwner { get; set; }
+    internal Func<bool>? Confirmation { get; set; }
     internal Func<bool>? HideToTray { get; set; }
     internal void DispatchQuick(string action)=>OnAction(action);
     internal CockpitView View => _view;
@@ -259,10 +265,10 @@ internal sealed class MainForm : Form
         _view.Act += OnAction;
         Controls.Add(_view);
 
-        Load += (_, _) => RefreshState();
+        Load += async (_, _) => await RefreshStateAsync();
         FormClosing += (_, e) =>
         {
-            if(_busy){e.Cancel=true;return;}
+            if(IsWorking){e.Cancel=true;return;}
             if(e.CloseReason==CloseReason.UserClosing && HideToTray!=null)
             {
                 if(!_backend.TestMode&&!_capture&&WindowState==FormWindowState.Normal)new UiState{Width=ClientSize.Width,Height=ClientSize.Height}.Save();
@@ -272,15 +278,13 @@ internal sealed class MainForm : Form
             new UiState { Width = ClientSize.Width, Height = ClientSize.Height }.Save();
         };
 
-        _guard.Tick += (_, _) => GuardTopmost();
-        if(!_backend.TestMode && !_capture)_guard.Start();
-        _refresh.Tick += (_, _) => { if(!_busy) RefreshRuntime(); };
+        _refresh.Tick += async (_, _) => await RefreshRuntimeAsync();
         if(!_backend.TestMode && !_capture)_refresh.Start();
     }
 
     protected override void Dispose(bool disposing)
     {
-        if(disposing){_guard.Stop();_refresh.Stop();_guard.Dispose();_refresh.Dispose();}
+        if(disposing){Interlocked.Increment(ref _runtimeEpoch);_refresh.Stop();_refresh.Dispose();}
         base.Dispose(disposing);
     }
     public IReadOnlyList<string> LastWarnings => _view.Warnings;
@@ -289,7 +293,10 @@ internal sealed class MainForm : Form
     {
         ClientSize = new Size(width, height);
         Show();
+        var deadline=DateTime.UtcNow.AddSeconds(12);
+        while(IsWorking&&DateTime.UtcNow<deadline){Application.DoEvents();Thread.Sleep(5);}
         Application.DoEvents();
+        if(IsWorking)throw new TimeoutException("截图初始状态读取超时。");
     }
 
     public void SaveShot(string path, CockpitPage page)
@@ -308,12 +315,27 @@ internal sealed class MainForm : Form
 
     private static bool FindGame() => NativeWindow.FindGameWindow("MyWhoosh") != IntPtr.Zero;
 
-    internal void RefreshForTest()=>RefreshState();
-    private void RefreshState()
+    internal void RefreshForTest()=>ApplySnapshot(_backend.Snapshot());
+    internal async Task RefreshStateAsync()
     {
-        try
+        if(_loadingState||IsDisposed)return;
+        _loadingState=true;_view.Busy=true;StateChanged?.Invoke();
+        try{var snapshot=await Task.Run(_backend.Snapshot);if(!IsDisposed)ApplySnapshot(snapshot);}
+        catch(Exception ex)
         {
-            var s = _backend.Snapshot();var w=s.Window;
+            if(IsDisposed)return;
+            _view.Status="无法读取游戏状态";_view.Supported=false;_view.BackupAvailable=false;_view.HasStats=false;
+            _view.Notice=ex.Message;_view.InstallInterrupted=false;_view.WindowInterrupted=false;
+        }
+        finally
+        {
+            _loadingState=false;
+            if(!IsDisposed){_view.Busy=_busy;StateChanged?.Invoke();_view.Invalidate();}
+        }
+    }
+    private void ApplySnapshot(UiSnapshot s)
+    {
+            var w=s.Window;
         if (!_checkPassed || !_view.Supported || _view.GameVersion!=s.Version)_view.HasStats=false;
             _view.GameVersion=s.Version;_view.Supported=s.Supported;
             if (!_sizeDraft && w.Width > 0) { _view.WinW = w.Width; _view.WinH = w.Height; }
@@ -326,25 +348,26 @@ internal sealed class MainForm : Form
             _view.InstallInterrupted=s.Journal=="prepared";
             _view.WindowInterrupted=w.Message.StartsWith("窗口批次",StringComparison.Ordinal);
             _view.Notice=_view.InstallInterrupted?"上次汉化中断：退出游戏，点处理中断记录。已提交的汉化不会全部撤销。":_view.WindowInterrupted?"上次窗口操作中断：退出游戏，点处理窗口中断。":s.Supported?_view.Notice:"构建未支持，仅可诊断";
-        }
-        catch (Exception ex)
-        {
-            _view.Status = "无法读取游戏状态";
-            _view.Supported=false;_view.BackupAvailable=false;_view.HasStats=false;
-            if (string.IsNullOrEmpty(_view.Notice)) _view.Notice = ex.Message;
-            _view.InstallInterrupted=false;_view.WindowInterrupted=false;
-        }
-        RefreshRuntime();
-        _view.Invalidate();
+        StateChanged?.Invoke();_view.Invalidate();
     }
-    private void RefreshRuntime()
+    internal async Task RefreshRuntimeAsync()
     {
-        if(_backend.TestMode){StateChanged?.Invoke();return;}
-        var h=NativeWindow.FindGameWindow("MyWhoosh");_view.GameRunning=h!=IntPtr.Zero;
-        _view.ActualTopmost=h==IntPtr.Zero?null:NativeWindow.IsTopmost(h);
-        var size=NativeWindow.ClientSize(h);_view.ActualSize=size is {} v?$"{v.Width} × {v.Height}":"未启动";
-        StateChanged?.Invoke();
-        _view.Invalidate();
+        if(_runtimeBusy||IsDisposed)return;
+        _runtimeBusy=true;long epoch=Interlocked.Read(ref _runtimeEpoch);
+        bool pin=!_busy&&!_loadingState&&_view.Topmost&&!_view.WindowInterrupted;
+        try
+        {
+            var snapshot=await Task.Run(()=>{lock(_runtimeGate){return _backend.ReadRuntime(pin&&epoch==Interlocked.Read(ref _runtimeEpoch));}});
+            if(IsDisposed||epoch!=Interlocked.Read(ref _runtimeEpoch))return;
+            bool changed=_view.GameRunning!=snapshot.Running||_view.ActualTopmost!=snapshot.Topmost||_view.ActualSize!=snapshot.Size;
+            _view.GameRunning=snapshot.Running;_view.ActualTopmost=snapshot.Topmost;_view.ActualSize=snapshot.Size;
+            if(changed){StateChanged?.Invoke();if(_view.Visible)_view.Invalidate();}
+        }
+        catch(Exception ex)
+        {
+            if(!IsDisposed){_view.ActualTopmost=null;_view.ActualSize="暂不可读";_view.Notice="窗口状态读取失败："+ex.Message;StateChanged?.Invoke();}
+        }
+        finally{_runtimeBusy=false;}
     }
 
     private static string StatusText(string status) => status switch
@@ -361,21 +384,7 @@ internal sealed class MainForm : Form
         _ => status,
     };
 
-    private void GuardTopmost()
-    {
-        try
-        {
-            if (!_view.Topmost || _view.WindowInterrupted || _backend.TestMode) { _gameHwnd = IntPtr.Zero; return; }
-            if (_gameHwnd == IntPtr.Zero && (DateTime.UtcNow - _lastLookup).TotalSeconds > 4)
-            {
-                _lastLookup = DateTime.UtcNow;
-                _gameHwnd = NativeWindow.FindGameWindow("MyWhoosh");
-            }
-            if (_gameHwnd != IntPtr.Zero && !NativeWindow.SetTopmost(_gameHwnd, true)) _gameHwnd = IntPtr.Zero;
-            RefreshRuntime();
-        }
-        catch { }
-    }
+    // Runtime monitoring is single-flight and off the UI thread; pin only when style is absent.
 
     // -------------------------------------------------------------- 动作分发
 
@@ -383,7 +392,12 @@ internal sealed class MainForm : Form
     {
         try
         {
-            if (_view.Busy || _busy) return;
+            if (_view.Busy || _busy || _loadingState)
+            {
+                if(action.StartsWith("nav:",StringComparison.Ordinal)){_view.Page=(CockpitPage)int.Parse(action[4..]);_view.Invalidate();}
+                if(action=="floating")FloatingRequested?.Invoke();
+                return;
+            }
             switch (action)
             {
                 case "nav:0": case "nav:1": case "nav:2": case "nav:3":
@@ -416,7 +430,7 @@ internal sealed class MainForm : Form
                     _sizeDraft=true;
                     _view.WinW = int.Parse(parts[1]);
                     _view.WinH = int.Parse(parts[2]);
-                    _view.Invalidate();
+                    _view.Invalidate();StateChanged?.Invoke();
                     return;
                 }
                 case "check":
@@ -463,22 +477,35 @@ internal sealed class MainForm : Form
         _view.Invalidate();
         try
         {
-            var element = await Task.Run(() => JsonSerializer.SerializeToElement(work(), AppInfo.JsonOptions));
-            ApplyResult(key, label, element);            try { if(!_backend.TestMode) Operations.Log(key, element); } catch { }
+            int width=_view.WinW,height=_view.WinH;bool pinBefore=_view.Topmost,desiredPin=!pinBefore;
+            Interlocked.Increment(ref _runtimeEpoch);
+            var element = await Task.Run(() =>
+            {
+                // A runtime read cannot race a user's explicit pin change.
+                object result;
+                if(key=="topmost"){lock(_runtimeGate){result=_backend.SetTopmost(desiredPin);}}
+                else result=key=="window"?_backend.ApplyWindow(width,height,pinBefore):work();
+                return JsonSerializer.SerializeToElement(result,AppInfo.JsonOptions);
+            });
+            if(IsDisposed)return;
+            ApplyResult(key, label, element);
+            try { if(!_backend.TestMode) await Task.Run(()=>Operations.Log(key,element)); } catch { }
+            // Window/pin results already contain state. Never revalidate thousands of backups here.
+            if(key is not ("topmost" or "window" or "window-reset" or "recover-window"))await RefreshStateAsync();
         }
         catch (Exception ex)
         {
             _view.HasStats=false;_checkPassed=false;
-            try { if(!_backend.TestMode) Operations.Log(key + "-error", new { error = ex.Message }); } catch { }
+            try { if(!_backend.TestMode) await Task.Run(()=>Operations.Log(key+"-error",new {error=ex.Message})); } catch { }
             AddLog(label + "失败：" + ex.Message);
             Error(label + "失败", ex);
+            if(key!="topmost")await RefreshStateAsync();
         }
         finally
         {
             _view.Busy = false;
             _busy = false;
-            RefreshState();
-            _view.Invalidate();
+            if(!IsDisposed){StateChanged?.Invoke();_view.Invalidate();await RefreshRuntimeAsync();}
         }
     }
 
@@ -521,12 +548,16 @@ internal sealed class MainForm : Form
             case "window-reset":
             case "recover-window":
             case "topmost":
-                _sizeDraft=false;
-                _view.WinW = el.GetProperty("Width").GetInt32();
-                _view.WinH = el.GetProperty("Height").GetInt32();
+                if(key!="topmost")
+                {
+                    _sizeDraft=false;
+                    _view.WinW = el.GetProperty("Width").GetInt32();
+                    _view.WinH = el.GetProperty("Height").GetInt32();
+                }
                 _view.Topmost = el.GetProperty("Topmost").GetBoolean();
                 _view.WindowBackupAvailable = el.GetProperty("BackupAvailable").GetBoolean();
                 _view.Windowed = el.GetProperty("Windowed").GetBoolean();
+                if(key=="recover-window")_view.WindowInterrupted=false;
                 _view.Status = key == "topmost"
                     ? (_view.Topmost ? "置顶已开启" : "置顶已关闭")
                     : $"窗口 {_view.WinW}×{_view.WinH}";
@@ -562,11 +593,13 @@ internal sealed class MainForm : Form
     }
 
     private bool Confirm(string title, string text) =>
-        _backend.TestMode || MessageBox.Show(this, text, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        Confirmation?.Invoke() ?? (_backend.TestMode || MessageBox.Show(DialogOwner?.Invoke()??this, text, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK);
 
     private void Error(string title, Exception ex)
     {
-        if (!_backend.TestMode && IsHandleCreated && Visible) MessageBox.Show(this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        _view.Notice=title+"："+ex.Message;StateChanged?.Invoke();Failure?.Invoke(_view.Notice);
+        var owner=DialogOwner?.Invoke();
+        if (!_backend.TestMode && IsHandleCreated && (Visible||owner!=null)) MessageBox.Show(owner??this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private void OpenFolder(string path)

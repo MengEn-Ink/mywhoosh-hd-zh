@@ -5,7 +5,7 @@ $tag='v'+$Version
 $bundle='artifacts/build-'+$Version
 $zipName='mywhoosh-hd-zh-'+$Version+'-win-x64.zip'
 $setupName='mywhoosh-hd-zh-'+$Version+'-win-x64-setup.exe'
-$required=@($zipName,$setupName,'SHA256SUMS.txt','tests.json','gui-layout.json','installer-tests.json','quick-layout.json')
+$required=@($zipName,$setupName,'SHA256SUMS.txt','tests.json','gui-layout.json','installer-tests.json','quick-layout.json','performance-tests.json')
 $files=$required|ForEach-Object{Join-Path $bundle $_}
 $releaseArgs=@('release','create',$tag,'--target',$env:GITHUB_SHA,'--title',('MyWhoosh HD ZH '+$tag),'--notes-file','docs/RELEASE-NOTES.md')
 if($PreRelease){$releaseArgs+='--prerelease'}
@@ -30,17 +30,17 @@ $payloadJson=& (Join-Path $unpacked 'whoosh-zh.exe') payload-selftest --director
 if($LASTEXITCODE -ne 0){throw 'Redownloaded payload test failed'}
 $payload=$payloadJson|ConvertFrom-Json
 $reports=@{}
-foreach($kind in @('layout','quick')){
+foreach($kind in @('layout','quick','performance')){
   $dir=Join-Path $verify ($kind+'-test')
   $p=Start-Process -FilePath (Join-Path $unpacked 'MyWhooshZH.exe') -ArgumentList @(('--'+$kind+'-selftest'),('"'+$dir+'"')) -Wait -PassThru -WindowStyle Hidden
   if($p.ExitCode -ne 0){throw ('Redownloaded GUI '+$kind+' test failed')}
-  $name=if($kind -eq 'layout'){'ui-selftest.json'}else{'quick-selftest.json'}
+  $name=switch($kind){'layout'{'ui-selftest.json'} 'quick'{'quick-selftest.json'} 'performance'{'performance-tests.json'}}
   $reports[$kind]=Get-Content -LiteralPath (Join-Path $dir $name) -Raw -Encoding UTF8|ConvertFrom-Json
 }
-$layout=$reports['layout'];$quick=$reports['quick']
+$layout=$reports['layout'];$quick=$reports['quick'];$performance=$reports['performance']
 $installer=Get-Content -LiteralPath (Join-Path $bundle 'installer-tests.json') -Raw -Encoding UTF8|ConvertFrom-Json
-if(-not $payload.pass -or -not $layout.pass -or -not $layout.payloadTest.pass -or $layout.payloadTest.version -ne $Version -or $layout.interactions.passed -lt 13 -or @($layout.stressViews).Count -ne 16 -or -not $quick.pass -or $quick.passed -lt 8 -or -not $installer.pass){throw 'Release report gate failed'}
-$verification=@{zipSha256=(Get-FileHash -LiteralPath (Join-Path $verify $zipName) -Algorithm SHA256).Hash.ToLowerInvariant();setupSha256=(Get-FileHash -LiteralPath (Join-Path $verify $setupName) -Algorithm SHA256).Hash.ToLowerInvariant();redownloadHashMatches=$true;setupRedownloadHashMatches=$true;cliVersion=$cliVersion.Trim();payloadSelftestPass=$payload.pass;guiPayloadSelftestPass=$layout.payloadTest.pass;guiLayoutPass=$layout.pass;guiInteractions=$layout.interactions.passed;stressViews=@($layout.stressViews).Count;floatingPass=$quick.pass;floatingTests=$quick.passed;installerIntegrationPass=$installer.pass}
+if(-not $payload.pass -or -not $layout.pass -or -not $layout.payloadTest.pass -or $layout.payloadTest.version -ne $Version -or $layout.interactions.passed -lt 13 -or @($layout.stressViews).Count -ne 16 -or -not $quick.pass -or $quick.passed -lt 8 -or -not $installer.pass -or -not $performance.pass -or $performance.passed -lt 6){throw 'Release report gate failed'}
+$verification=@{zipSha256=(Get-FileHash -LiteralPath (Join-Path $verify $zipName) -Algorithm SHA256).Hash.ToLowerInvariant();setupSha256=(Get-FileHash -LiteralPath (Join-Path $verify $setupName) -Algorithm SHA256).Hash.ToLowerInvariant();redownloadHashMatches=$true;setupRedownloadHashMatches=$true;cliVersion=$cliVersion.Trim();payloadSelftestPass=$payload.pass;guiPayloadSelftestPass=$layout.payloadTest.pass;guiLayoutPass=$layout.pass;guiInteractions=$layout.interactions.passed;stressViews=@($layout.stressViews).Count;floatingPass=$quick.pass;floatingTests=$quick.passed;installerIntegrationPass=$installer.pass;performancePass=$performance.pass;performanceTests=$performance.passed;performanceMetrics=$performance.metrics}
 $result=@{tag=$tag;releaseUrl=$info.url;runUrl=('https://github.com/'+$env:GITHUB_REPOSITORY+'/actions/runs/'+$env:GITHUB_RUN_ID);commit=$env:GITHUB_SHA;assets=$info.assets;verification=$verification}|ConvertTo-Json -Depth 12
 [IO.File]::WriteAllText('release-evidence.json',$result,[Text.UTF8Encoding]::new($false))
 & gh release upload $tag 'release-evidence.json'

@@ -27,6 +27,8 @@ internal static class QuickTests
         Test("floating preferences persist only to selected temp folder",()=>{string home=Path.Combine(dir,"prefs");var pref=new QuickPreferences{X=20,Y=40,ShowFloating=false};pref.Save(home);var loaded=QuickPreferences.Load(home);Assert(loaded.X==20&&loaded.Y==40&&!loaded.ShowFloating,"prefs mismatch");});
         Test("tray menu and wake signals share one desktop lifecycle",()=>{
             using var context=new DesktopContext(true,backend,Path.Combine(dir,"desktop-context"));
+            var loaded=DateTime.UtcNow.AddSeconds(5);while(context.ConsoleForm.IsWorking&&DateTime.UtcNow<loaded){Application.DoEvents();Thread.Sleep(5);}
+            Assert(!context.ConsoleForm.IsWorking,"context snapshot timeout");
             Assert(context.FloatingForm.Visible&&!context.ConsoleForm.Visible,"floating startup wrong");
             using(var signal=new EventWaitHandle(false,EventResetMode.AutoReset,context.SignalPrefix+".OpenConsole"))signal.Set();
             var end=DateTime.UtcNow.AddSeconds(3);while(!context.ConsoleForm.Visible&&DateTime.UtcNow<end){Application.DoEvents();Thread.Sleep(20);}Assert(context.ConsoleForm.Visible,"existing session not awakened");

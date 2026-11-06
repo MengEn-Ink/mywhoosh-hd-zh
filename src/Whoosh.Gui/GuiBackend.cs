@@ -3,8 +3,12 @@ using Whoosh.Core;
 namespace Whoosh.Gui;
 
 internal sealed record UiSnapshot(string Version,bool Supported,string Journal,bool CanRestore,DateTime? CreatedUtc,WindowState Window,string Payload);
+internal sealed record RuntimeSnapshot(bool Running,bool? Topmost,string Size);
 internal sealed class GuiBackend
 {
+    private readonly RuntimeMonitor _runtime=new();
+    internal Func<bool,RuntimeSnapshot>? Runtime { get; init; }
+    internal RuntimeSnapshot ReadRuntime(bool pin)=>Runtime?.Invoke(pin)??(TestMode?new(false,null,"未启动"):_runtime.Read(pin));
     internal Func<object> Check { get; init; } = () => Operations.Check();
     internal Func<object> Install { get; init; } = () => Operations.Install();
     internal Func<object> RecoverInstall { get; init; } = () => Operations.RecoverPending();

@@ -29,6 +29,8 @@ internal sealed class DesktopContext : ApplicationContext
         _main=new MainForm(backend,capture:test);MainForm=_main;_quick=new QuickForm(_main);
         _main.FloatingRequested+=ShowFloating;
         _main.StateChanged+=()=>_quick.RefreshFromMain();
+        _main.DialogOwner=()=>{if(_quick.Visible)return _quick;if(!_main.Visible)OpenConsole();return _main;};
+        _main.Failure+=message=>{if(!_quick.Visible&&!_main.Visible)_tray?.ShowBalloonTip(4000,"操作未完成",message,ToolTipIcon.Warning);};
         _main.HideToTray=()=>{if(_exit)return false;_main.Hide();return true;};
         _quick.HideRequested+=()=>{_quick.Hide();_prefs.ShowFloating=false;Save();};
         _quick.ConsoleRequested+=OpenConsole;

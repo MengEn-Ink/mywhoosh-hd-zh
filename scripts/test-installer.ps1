@@ -56,6 +56,8 @@ if($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $Version){throw 'Installed CLI
 $quickOut=Join-Path $root 'installed-quick-test'
 $p=Start-Process -FilePath (Join-Path $app 'MyWhooshZH.exe') -ArgumentList @('--quick-selftest',('"'+$quickOut+'"')) -Wait -PassThru
 if($p.ExitCode -ne 0){throw 'Installed GUI quick test failed'}
+$p=Start-Process -FilePath (Join-Path $app 'MyWhooshZH.exe') -ArgumentList @('--performance-selftest',('"'+(Join-Path $root 'installed-performance-test')+'"')) -Wait -PassThru -WindowStyle Hidden
+if($p.ExitCode -ne 0){throw 'Installed GUI responsiveness test failed'}
 RunSetup
 if((Get-Content -LiteralPath (Join-Path $app 'user-keep.txt') -Raw -Encoding UTF8) -ne 'owned by test user'){throw 'Upgrade overwrote unknown user file'}
 $uninstall=Join-Path $app 'unins000.exe'

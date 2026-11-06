@@ -13,6 +13,7 @@ public static class NativeWindow
     private const int SWP_NOMOVE = 0x0002;
     private const int SWP_NOSIZE = 0x0001;
     private const int SWP_NOACTIVATE = 0x0010;
+    private const int SWP_ASYNCWINDOWPOS = 0x4000;
     private static readonly IntPtr HWND_TOPMOST = new(-1);
     private static readonly IntPtr HWND_NOTOPMOST = new(-2);
 
@@ -73,7 +74,18 @@ public static class NativeWindow
     public static bool SetTopmost(IntPtr hWnd, bool topmost)
     {
         if (hWnd == IntPtr.Zero || !OperatingSystem.IsWindows()) return false;
-        return SetWindowPos(hWnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        return SetWindowPos(hWnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+    }
+
+    [DllImport("user32.dll")] private static extern bool IsWindow(IntPtr hWnd);
+    public static bool IsGameWindow(IntPtr hWnd)
+    {
+        if(hWnd==IntPtr.Zero||!OperatingSystem.IsWindows()||!IsWindow(hWnd)||!IsWindowVisible(hWnd))return false;
+        GetWindowThreadProcessId(hWnd,out uint id);
+        try{using var process=Process.GetProcessById(checked((int)id));return WindowsTarget.IsGameProcess(process.ProcessName);}
+        catch(ArgumentException){return false;}
+        catch(InvalidOperationException){return false;}
+        catch(System.ComponentModel.Win32Exception){return false;}
     }
 
     private const int GWL_EXSTYLE = -20;

@@ -38,6 +38,7 @@ internal sealed class QuickForm : Form
     internal event Action? ConsoleRequested;
     internal event Action? Moved;
     private Point? _drag;
+    private bool _syncingSize;
     internal QuickForm(MainForm main)
     {
         _main=main;Text="MyWhoosh 快捷浮窗";FormBorderStyle=FormBorderStyle.FixedToolWindow;
@@ -52,7 +53,7 @@ internal sealed class QuickForm : Form
         _pin=MakeButton("开启游戏置顶",12,94,316,32,()=>_main.DispatchQuick("toggle-topmost"));
         _size=new ComboBox{Left=12,Top=138,Width=160,DropDownStyle=ComboBoxStyle.DropDownList};
         _size.Items.AddRange(new object[]{"1280 × 720","1600 × 900","1920 × 1080","2560 × 1440"});_size.SelectedIndex=0;
-        _size.SelectedIndexChanged+=(_,_)=>{var s=Sizes[_size.SelectedIndex];_main.DispatchQuick($"size:{s.W}:{s.H}");};
+        _size.SelectedIndexChanged+=(_,_)=>{if(_syncingSize||_size.SelectedIndex<0)return;var s=Sizes[_size.SelectedIndex];_main.DispatchQuick($"size:{s.W}:{s.H}");};
         _apply=MakeButton("退出游戏后应用",180,136,148,30,()=>_main.DispatchQuick(_main.View.WindowInterrupted?"recover-window":"apply-window"));
         ConsoleButton=MakeButton("打开主面板",12,180,150,30,()=>ConsoleRequested?.Invoke());
         var hide=MakeButton("收起到托盘",178,180,150,30,()=>HideRequested?.Invoke());
@@ -70,8 +71,15 @@ internal sealed class QuickForm : Form
     }
     internal void RefreshFromMain()
     {
-        var v=_main.View;_status.Text=$"游戏：{(v.GameRunning?"运行中":"未启动")} · 实际置顶：{v.TopmostText}\n实际尺寸：{v.ActualSize}";
-        _pin.Text=v.Topmost?"关闭游戏置顶":"开启游戏置顶";
+        var v=_main.View;
+        string status=_main.IsWorking?"处理中，窗口仍可拖动…":$"游戏：{(v.GameRunning?"运行中":"未启动")} · 实际置顶：{v.TopmostText}\n实际尺寸：{v.ActualSize}";
+        if(_status.Text!=status)_status.Text=status;
+        string pinText=v.Topmost?"关闭游戏置顶":"开启游戏置顶";if(_pin.Text!=pinText)_pin.Text=pinText;
+        if(!_size.DroppedDown)
+        {
+            int selected=Array.FindIndex(Sizes,s=>s.W==v.WinW&&s.H==v.WinH);
+            if(_size.SelectedIndex!=selected){_syncingSize=true;try{_size.SelectedIndex=selected;}finally{_syncingSize=false;}}
+        }
         _pin.Enabled=!_main.IsWorking&&v.Supported&&!v.WindowInterrupted;
         _apply.Enabled=!_main.IsWorking&&v.Supported;
         _apply.Text=v.WindowInterrupted?"处理窗口中断":"退出游戏后应用";
