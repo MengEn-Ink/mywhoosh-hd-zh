@@ -23,7 +23,22 @@ if($reg.DisplayVersion -ne $Version -or $reg.InstallLocation.TrimEnd('\') -ne $a
 $wsh=New-Object -ComObject WScript.Shell
 $links=Get-ChildItem -LiteralPath $shortcuts -File -Filter '*.lnk'
 if($links.Count -ne 2){throw 'Shortcuts missing'}
-foreach($link in $links){$s=$wsh.CreateShortcut($link.FullName);if($s.TargetPath -ne (Join-Path $app 'MyWhooshZH.exe')){throw 'Shortcut target wrong'};if($link.BaseName.Contains('浮窗') -and $s.Arguments -ne '--floating'){throw 'Floating shortcut arguments wrong'}}
+Add-Type -TypeDefinition @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+public static class InstallerPaths {
+ [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] private static extern uint GetLongPathName(string p, StringBuilder b, uint n);
+ public static string Long(string p) { var b=new StringBuilder(32768);uint n=GetLongPathName(p,b,(uint)b.Capacity);if(n==0 || n>=b.Capacity)throw new System.IO.IOException("Cannot resolve shortcut path: "+p);return b.ToString(); }
+}
+'@
+foreach($link in $links){
+  $s=$wsh.CreateShortcut($link.FullName)
+  $target=[InstallerPaths]::Long($s.TargetPath)
+  $expected=[InstallerPaths]::Long((Join-Path $app 'MyWhooshZH.exe'))
+  if($target -ne $expected){throw ('Shortcut target wrong: actual='+$s.TargetPath+' resolved='+$target+' expected='+$expected)}
+  if($link.BaseName.Contains('浮窗') -and $s.Arguments -ne '--floating'){throw ('Floating shortcut arguments wrong: '+$s.Arguments)}
+}
 $cliVersion=& (Join-Path $app 'whoosh-zh.exe') version
 if($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $Version){throw 'Installed CLI version failed'}
 $quickOut=Join-Path $root 'installed-quick-test'
