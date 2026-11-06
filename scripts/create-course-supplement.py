@@ -16,9 +16,11 @@ assert len(rows) == 3 and len({(r['Name'], r['Description']) for r in rows}) == 
 assert all('15' in r['ChineseDescription'] and '第3区' in r['ChineseDescription'] for r in rows)
 assert args.output.parent.is_dir(), 'Output parent must already exist'
 assert not args.output.exists(), 'Do not overwrite existing supplemental resource'
-# Stable across filesystem enumeration orders.
-rows.sort(key=lambda row: row['Description'])
+# Preserve the committed three-variant order (CRLF, LF, no paragraph break).
+rows.sort(key=lambda row: 0 if '\r\n' in row['Description'] else 1 if '\n' in row['Description'] else 2)
 data = (json.dumps(rows, ensure_ascii=False, indent=2) + '\n').encode('utf-8')
+expected = 'F5BFB441CFFB72D082396A1E84D3C6AFC5E6283F3D14473B57E3D5C4C9357CB9'
+assert hashlib.sha256(data).hexdigest().upper() == expected, 'Inputs do not reproduce the committed resource'
 with args.output.open('xb') as f:
     f.write(data)
 print('SUPPLEMENT_SHA256=' + hashlib.sha256(data).hexdigest().upper())

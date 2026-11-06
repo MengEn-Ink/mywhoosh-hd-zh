@@ -136,6 +136,14 @@ public static class GameWindow
     }
     public static WindowState Current()=>Inspect(WindowsTarget.Detect().SavedRoot,AppInfo.State);
     public static WindowState Enable(int w,int h,bool topmost=false,int fullscreenMode=2){var t=WindowsTarget.Detect();WindowsTarget.AssertSupported(t);return Apply(t.SavedRoot,AppInfo.State,w,h,WindowsTarget.AssertClosed,topmost,fullscreenMode);}
+    public static WindowState RecoverPending(string saved,string state,Action closed)
+    {
+        closed();SafeFiles.NoLinks(state);Directory.CreateDirectory(state);
+        using var guard=new FileStream(Path.Combine(state,"window.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+        bool recovered=DurableBatch.Recover(saved,state,"pending-window.json","window.json",r=>Files.Contains(r),bytes=>Validate(saved,bytes));
+        return Inspect(saved,state) with {Message=recovered?"中断窗口批次已处理，先前设置保留；请重新检查或应用。":"没有待处理窗口批次。"};
+    }
+    public static WindowState RecoverCurrent(){var t=WindowsTarget.Detect();if(t.Family!=AppInfo.Family)throw new InvalidDataException("包族不匹配。");return RecoverPending(t.SavedRoot,AppInfo.State,WindowsTarget.AssertClosed);}
     public static WindowState Reset(){var t=WindowsTarget.Detect();return Restore(t.SavedRoot,AppInfo.State,WindowsTarget.AssertClosed);}
     /// <summary>把已运行的游戏窗口置顶或取消置顶；游戏未运行时仅记录偏好。</summary>
     public static WindowState SetTopmostPreference(string saved,string state,bool topmost,Action closed)

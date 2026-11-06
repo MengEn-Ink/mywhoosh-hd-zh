@@ -81,6 +81,7 @@ internal static class Program
     private static int SelfTest(string dir, bool layoutOnly = false)
     {
         Directory.CreateDirectory(dir);
+        object? payloadTest=layoutOnly?PayloadStore.SelfTest(Path.Combine(dir,"isolated-payload")):null;
         var pages = new List<object>();
         var warnings = new List<string>();
         using var form = new MainForm(layoutOnly?GuiBackend.LayoutFixture():null,capture:true);
@@ -108,6 +109,24 @@ internal static class Program
         {
             string file="窄窗-"+name+".png";form.SaveShot(Path.Combine(dir,file),page);
             var wa=form.LastWarnings.ToArray();warnings.AddRange(wa);detailViews.Add(new{file,warnings=wa});
+        }
+        var stressViews=new List<object>();
+        if(layoutOnly)
+        {
+            form.View.Notice=string.Concat(Enumerable.Repeat("中断恢复遇到后续修改，请保留备份并查看完整记录。",8));
+            form.View.Status="中断恢复有冲突，未知修改已保留";
+            for(int i=0;i<5;i++)form.View.Log.Add(string.Concat(Enumerable.Repeat("窗口配置与原记录不一致，未覆盖用户修改。",10)));
+            foreach(int dpi in new[]{96,120,144,192})
+            {
+                form.View.CaptureDpi=dpi;
+                form.PrepareForCapture(dpi==96?960:(int)(960*dpi/96f),dpi==96?720:(int)(720*dpi/96f));
+                foreach(var (page,name) in Pages)
+                {
+                    string file=$"压力-{dpi}-"+name+".png";form.SaveShot(Path.Combine(dir,file),page);
+                    var wa=form.LastWarnings.ToArray();warnings.AddRange(wa);stressViews.Add(new{dpi,actualWidth=form.View.Width,actualHeight=form.View.Height,file,warnings=wa});
+                }
+            }
+            form.View.CaptureDpi=null;
         }
         JsonElement? check = null;
         string? checkError = null;
@@ -144,6 +163,9 @@ internal static class Program
             clientSize = "1280x860",
             pages,
             detailViews,
+            stressViews,
+            payloadTest,
+            dpiTest="simulated layout metrics; not a physical monitor transition test",
             warnings,
             smallView = new { file = Path.GetFileName(small), warnings = smallWarnings },
             tinyView = new { file = Path.GetFileName(tiny), warnings = tinyWarnings },
@@ -219,7 +241,7 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         DoubleBuffered = true;
 
-        var state = UiState.Load();
+        var state = _capture || _backend.TestMode ? new UiState() : UiState.Load();
         ClientSize = new Size(state.Width, state.Height);
 
         _view = new CockpitView { Dock = DockStyle.Fill };
@@ -227,8 +249,9 @@ internal sealed class MainForm : Form
         Controls.Add(_view);
 
         Load += (_, _) => RefreshState();
-        FormClosing += (_, _) =>
+        FormClosing += (_, e) =>
         {
+            if(_busy){e.Cancel=true;return;}
             if (_backend.TestMode || _capture || WindowState != FormWindowState.Normal) return;
             new UiState { Width = ClientSize.Width, Height = ClientSize.Height }.Save();
         };
@@ -239,6 +262,11 @@ internal sealed class MainForm : Form
         if(!_backend.TestMode && !_capture)_refresh.Start();
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        if(disposing){_guard.Stop();_refresh.Stop();_guard.Dispose();_refresh.Dispose();}
+        base.Dispose(disposing);
+    }
     public IReadOnlyList<string> LastWarnings => _view.Warnings;
 
     public void PrepareForCapture(int width, int height)
@@ -279,13 +307,16 @@ internal sealed class MainForm : Form
             _view.PayloadState=s.Payload;
             _view.BackupWhen=s.CreatedUtc is {} utc?$"{utc.ToLocalTime():M月d日 HH:mm} · 首次备份":s.CanRestore?"旧记录 · 时间未知":"";
             _view.Status=StatusText(s.Journal);
-            _view.Notice=s.Supported?(w.Message.StartsWith("窗口批次")?w.Message:""):"构建未支持，仅可诊断";
+            _view.InstallInterrupted=s.Journal=="prepared";
+            _view.WindowInterrupted=w.Message.StartsWith("窗口批次",StringComparison.Ordinal);
+            _view.Notice=_view.InstallInterrupted?"上次汉化中断：退出游戏，点处理中断记录。已提交的汉化不会全部撤销。":_view.WindowInterrupted?"上次窗口操作中断：退出游戏，点处理窗口中断。":s.Supported?_view.Notice:"构建未支持，仅可诊断";
         }
         catch (Exception ex)
         {
             _view.Status = "无法读取游戏状态";
             _view.Supported=false;_view.BackupAvailable=false;_view.HasStats=false;
             if (string.IsNullOrEmpty(_view.Notice)) _view.Notice = ex.Message;
+            _view.InstallInterrupted=false;_view.WindowInterrupted=false;
         }
         RefreshRuntime();
         _view.Invalidate();
@@ -317,7 +348,7 @@ internal sealed class MainForm : Form
     {
         try
         {
-            if (!_view.Topmost || _backend.TestMode) { _gameHwnd = IntPtr.Zero; return; }
+            if (!_view.Topmost || _view.WindowInterrupted || _backend.TestMode) { _gameHwnd = IntPtr.Zero; return; }
             if (_gameHwnd == IntPtr.Zero && (DateTime.UtcNow - _lastLookup).TotalSeconds > 4)
             {
                 _lastLookup = DateTime.UtcNow;
@@ -345,6 +376,19 @@ internal sealed class MainForm : Form
                 case "help":
                     if(!_backend.TestMode)MessageBox.Show(this,"装中文：先退出游戏，点检查，再点安装 / 更新。\n新课程：退出游戏后再检查，新增内容可增量更新。\n还显示英文：核对同一账户、游戏构建、课程匹配，再重启。\n小窗：选预设尺寸，应用后重启；拖边能力由游戏决定。\n置顶：保持助手运行；看实际置顶，不只看开关。\n回英文：保留备份，恢复只撤销已记录的汉化。\n\nWorkouts：单次课程；Training Plans：多周计划。\nPower Source：功率来源；Controllable：可控阻力。\nERG：目标功率控制；FTP：训练功率基准。\nSave / Upload：保存 / 上传；Discard：丢弃。\n\n分享问题时只提供脱敏诊断，不上传存档或整个 AppData。", "上手帮助与术语", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
+                case "show-details":
+                    if(!_backend.TestMode)
+                    {
+                        using var dialog=new Form{Text="完整提示与操作记录",Size=new Size(800,560),MinimumSize=new Size(480,320),StartPosition=FormStartPosition.CenterParent};
+                        using var text=DetailsText();dialog.Controls.Add(text);dialog.ShowDialog(this);
+                    }
+                    return;
+                case "recover-install":
+                    if(!Confirm("处理中断记录？","先退出游戏。仅处理上次未完成批次，已提交的汉化保留。\n未知冲突会保留现场，不强行删除。"))return;
+                    await Execute("recover-install","处理中断",_backend.RecoverInstall);return;
+                case "recover-window":
+                    if(!Confirm("处理窗口中断？","先退出游戏。仅处理上次未完成窗口批次，不还原所有窗口设置。"))return;
+                    await Execute("recover-window","处理窗口中断",_backend.RecoverWindow);return;
                 case "open-backup": OpenFolder(AppInfo.State); return;
                 case "open-log": OpenFolder(System.IO.Path.Combine(AppInfo.Home, "logs")); return;
                 case "size:1280:720": case "size:1600:900": case "size:1920:1080": case "size:2560:1440":
@@ -439,7 +483,8 @@ internal sealed class MainForm : Form
                 break;
             case "install":
             case "restore":
-                _view.HasStats=false;
+            case "recover-install":
+                _view.HasStats=false;_checkPassed=false;
                 goto case "migrate";
             case "migrate":
             case "payload-import":
@@ -449,20 +494,23 @@ internal sealed class MainForm : Form
                     _view.Status = "资源包已导入";
                 string changed = el.TryGetProperty("Changed", out var c) ? c.GetInt32().ToString("N0") : "1";
                 string message = el.TryGetProperty("Message", out var msg) ? msg.GetString() ?? "" : "";
+                _view.Notice=message;
                 AddLog($"{label}：{StatusText(_view.Status)} · 影响 {changed} 个文件 · {message}");
                 break;
             case "window":
             case "window-reset":
+            case "recover-window":
             case "topmost":
                 _sizeDraft=false;
                 _view.WinW = el.GetProperty("Width").GetInt32();
                 _view.WinH = el.GetProperty("Height").GetInt32();
                 _view.Topmost = el.GetProperty("Topmost").GetBoolean();
-                _view.BackupAvailable = el.GetProperty("BackupAvailable").GetBoolean();
+                _view.WindowBackupAvailable = el.GetProperty("BackupAvailable").GetBoolean();
                 _view.Windowed = el.GetProperty("Windowed").GetBoolean();
                 _view.Status = key == "topmost"
                     ? (_view.Topmost ? "置顶已开启" : "置顶已关闭")
                     : $"窗口 {_view.WinW}×{_view.WinH}";
+                _view.Notice=el.GetProperty("Message").GetString()??"";
                 AddLog($"{label}：{_view.WinW}×{_view.WinH} · 置顶 {(_view.Topmost ? "开" : "关")} · {el.GetProperty("Message").GetString()}");
                 break;
         }
@@ -485,6 +533,7 @@ internal sealed class MainForm : Form
         });
     }
 
+    internal TextBox DetailsText()=>new(){Dock=DockStyle.Fill,Multiline=true,ReadOnly=true,WordWrap=false,ScrollBars=ScrollBars.Both,Text=_view.Notice+Environment.NewLine+Environment.NewLine+string.Join(Environment.NewLine+Environment.NewLine,_view.Log)};
     private void AddLog(string message)
     {
         _view.Log.Add($"{DateTime.Now:HH:mm}  {message}");

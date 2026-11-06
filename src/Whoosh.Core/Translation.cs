@@ -33,6 +33,19 @@ public static class PayloadStore
         }
         Validate(destination); return true;
     }
+    public static object SelfTest(string destination)
+    {
+        string folder=Path.GetFullPath(destination);
+        if(Directory.Exists(folder)||File.Exists(folder))throw new IOException("资源自检必须使用不存在的新目录，不覆盖现有文件。");
+        SafeFiles.NoLinks(folder);
+        bool extracted=EnsurePayload(folder);
+        bool cached=!EnsurePayload(folder);
+        SafeFiles.AtomicWrite(SafeFiles.Within(folder,"courses-supplement.json"),[0]);
+        bool repaired=EnsurePayload(folder);
+        Validate(folder);
+        if(!extracted||!cached||!repaired)throw new IOException("内置资源自检失败。");
+        return new {pass=true,version=AppInfo.Version,payloadVersion=AppInfo.PayloadVersion,extracted,cached,repaired,hashes=AppInfo.PayloadHashes};
+    }
     public static void ImportZip(string zipPath, string destination)
     {
         SafeFiles.NoLinks(destination);

@@ -22,6 +22,37 @@ internal static class RegressionCases
         }
         byte[] FileBytes(string root,string path)=>SafeFiles.ReadBounded(SafeFiles.Within(root,path));
         Journal Ledger(string state)=>JsonSerializer.Deserialize<Journal>(File.ReadAllBytes(Path.Combine(state,"active.json")),AppInfo.JsonOptions)!;
+        test("CLI window topmost flag parsed without game writes",()=>{
+            var plain=CliArguments.Window(["window","--width","1280","--height","720","--yes"]);
+            var pinned=CliArguments.Window(["window","--width","1280","--height","720","--yes","--topmost"]);
+            assert(!plain.Topmost&&pinned.Topmost&&pinned.Width==1280&&pinned.Height==720,"topmost flag lost");
+        });
+        test("CLI window rejects trailing and malformed arguments",()=>{
+            foreach(var args in new string[][]{
+                ["window","--width","1280","--height","720","--yes","--bad"],
+                ["window","--width","1280","--height","720","--yes","--topmost","true"],
+                ["window","--width","-1","--height","720","--yes"],
+                ["window","--width","1,280","--height","720","--yes"]})reject(()=>CliArguments.Window(args));
+        });
+        test("published-resource selftest uses isolated new directory",()=>{
+            string parent=dir(),target=Path.Combine(parent,"new-payload");
+            PayloadStore.SelfTest(target);PayloadStore.Validate(target);
+            assert(Directory.GetFiles(target).Length==4,"four resources absent");
+            var hashes=Directory.GetFiles(target).ToDictionary(p=>Path.GetFileName(p)!,SafeFiles.HashFile);
+            reject(()=>PayloadStore.SelfTest(target));
+            assert(Directory.GetFiles(target).All(p=>hashes[Path.GetFileName(p)]==SafeFiles.HashFile(p)),"existing selftest directory overwritten");
+        });
+        test("explicit recovery rejects running guard without file writes",()=>{
+            var f=Fixture();var old=FileBytes(f.Root,rel);
+            reject(()=>f.Tx.RecoverPending(()=>throw new IOException("game running")));
+            reject(()=>GameWindow.RecoverPending(f.Root,f.State,()=>throw new IOException("game running")));
+            assert(old.SequenceEqual(FileBytes(f.Root,rel)),"recovery ignored closed guard");
+        });
+        test("explicit recovery no-op retains installed first baseline",()=>{
+            var f=Fixture();f.Tx.Apply(()=>Plan(Change(rel,Raw())),()=>{});
+            var ledger=File.ReadAllBytes(Path.Combine(f.State,"active.json"));
+            assert(f.Tx.RecoverPending(()=>{}).Status=="unchanged"&&ledger.SequenceEqual(File.ReadAllBytes(Path.Combine(f.State,"active.json"))),"no-op recovery touched baseline");
+        });
         const string second="PersistentDownloadDir/DefaultCache/Cycling/Trainingplans/Workouts/second.json";
         test("incremental new file retains first backup and restores all",()=>{
             var f=Fixture();f.Tx.Apply(()=>Plan(Change(rel,Raw())),()=>{});var first=Ledger(f.State);string backup=first.Entries[0].Backup!;DateTime? created=first.CreatedUtc;

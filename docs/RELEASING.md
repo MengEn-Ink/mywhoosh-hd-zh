@@ -6,7 +6,7 @@
 
 ```powershell
 dotnet run --project tests/Whoosh.Tests/Whoosh.Tests.csproj -c Release
-./scripts/build.ps1 -Version 0.2.0
+./scripts/build.ps1 -Version 0.2.1
 ```
 
 可以传 `-Dotnet <dotnet.exe绝对路径>`，不修改系统 PATH。版本格式先校验；`artifacts/build-<版本>` 存在时拒绝覆盖，保留历史产物。
@@ -18,7 +18,7 @@ dotnet run --project tests/Whoosh.Tests/Whoosh.Tests.csproj -c Release
 1. 基础回归（含三项内嵌资源释放/幂等/修复）非零停止。
 2. 发布 GUI 和 CLI：Windows x64、自包含、单文件。
 3. 跑发布后的 CLI version/help。
-4. 跑发布后 GUI `--layout-selftest`，确认四页 + 两个窄窗，共六张截图，报告 pass=true 和零越界告警。
+4. 跑发布后GUI `--layout-selftest`：九张基础尺寸图与16张长文本/96–192 DPI模拟压力图，共25图；13项点击分发、零越界告警，以及GUI/CLI发布EXE各自的隔离内嵌资源首次释放/缓存/修复均需通过。DPI模拟不等于物理显示器迁移测试。
 5. 保留使用文档、汉化资源来源、字体和 .NET 许可；生成 ZIP、SHA256SUMS、tests.json、gui-layout.json。
 6. 上传 Artifact，保留 14 天。Artifact 不是长期 Release。
 

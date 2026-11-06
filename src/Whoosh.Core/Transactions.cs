@@ -134,6 +134,14 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
     {
         var copy=node.DeepClone();foreach(var t in texts)Translation.Set(copy,t.Pointer,"");return copy;
     }
+    public OperationResult RecoverPending(Action assertClosed)
+    {
+        using var guard=Lock();assertClosed();
+        bool recovered=DurableBatch.Recover(savedRoot,stateRoot,"pending-install.json","active.json",SafeFiles.AllowedTarget,b=>ValidateBytes(b));
+        var j=Load();
+        if(j is {Status:"prepared"}){Recover(j);return new(j.Status,0,0,"旧中断记录已处理；请重新检查。冲突现场请保留。");}
+        return new(recovered?"recovered":"unchanged",0,0,recovered?"仅处理上次未完成批次，已提交的汉化保留。请重新检查。":"没有待处理中断批次。");
+    }
     public OperationResult Restore(Action assertClosed)
     {
         using var guard=Lock();assertClosed();
@@ -158,6 +166,7 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
             if(hash==e.AfterHash && e.Backup!=null &&
                 JsonNode.DeepEquals(NonText(Translation.Parse(raw),e.Texts),NonText(Translation.Parse(SafeFiles.ReadBounded(SafeFiles.Within(stateRoot,e.Backup))),e.Texts)))
             {
+                if(SafeFiles.HashFile(p)!=hash)throw new IOException("文件在恢复期间变化。");
                 SafeFiles.AtomicWrite(p,SafeFiles.ReadBounded(SafeFiles.Within(stateRoot,e.Backup!)));e.Restored=true;changed++;Save(j);continue;
             }
             // Restore only unchanged translated fields; retain later favorite/state edits.
@@ -207,6 +216,12 @@ public static class Operations
     {
         WindowsTarget.AssertClosed();var t=WindowsTarget.Detect();
         return RestoreTarget(t,AppInfo.State,WindowsTarget.AssertClosed);
+    }
+    public static OperationResult RecoverPending()
+    {
+        WindowsTarget.AssertClosed();var t=WindowsTarget.Detect();
+        if(t.Family!=AppInfo.Family)throw new InvalidDataException("包族不匹配。");
+        return new Transactions(t.SavedRoot,AppInfo.State,t.Family).RecoverPending(WindowsTarget.AssertClosed);
     }
     public static OperationResult RestoreTarget(Target t,string state,Action closed)
     {

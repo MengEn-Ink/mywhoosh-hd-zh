@@ -1,19 +1,19 @@
 # MyWhoosh HD ZH · 竞速座舱
 
-原生 Windows 中文助手，**v0.2.0 内置资源版**。装中文、调小窗、始终置顶、回退英文，集中在一个简单面板里。
+原生 Windows 中文助手，**v0.2.1 内置资源版**。装中文、调小窗、始终置顶、回退英文，集中在一个简单面板里。
 
 仅支持已实测的 Windows x64 商店构建：MyWhoosh HD **6.2.3.0** / `MyWhooshTechnologyService.644173E064ED2`。包族、版本或主资源哈希不同会停止安装，不靠关闭校验硬装。
 
-## main 开发分支修复（尚未发行）
+## v0.2.1 更新
 
-v0.2.0 下载包保持原样，以下更新仅在 main 源码：检查与安装分离、真实版本/置顶状态、三条 Varied Tempo #1 精确增补、保留首次备份的增量事务、窗口多文件中断恢复、旧账本迁移回归。使用新流程见 QUICKSTART；旧下载包按钮仍只做检查，安装请进入汉化页。本轮未修改 release-version.txt，不触发新 Release。
+检查与安装分离、真实版本/置顶状态、三条 Varied Tempo #1 精确增补、保留首次备份的增量事务、窗口多文件中断恢复、旧账本迁移回归全部进入此版。新增明确的汉化/窗口中断处理入口、完整长提示、CLI参数严格校验及发布EXE资源首次运行/修复门禁。旧v0.2.0下载包保持原样，升级请使用新的EXE并保留AppData中的备份。
 
 ## 下载和使用
 
-到 [v0.2.0 发布页](https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.2.0)，下载 **mywhoosh-hd-zh-0.2.0-win-x64.zip**（不是 Source code），完整解压后双击 **MyWhooshZH.exe**。
+到 [v0.2.1 发布页](https://github.com/MengEn-Ink/mywhoosh-hd-zh/releases/tag/v0.2.1)，下载 **mywhoosh-hd-zh-0.2.1-win-x64.zip**（不是 Source code），完整解压后双击 **MyWhooshZH.exe**。
 
 1. 打开游戏，让训练列表加载完成，再退出游戏。
-2. 打开中文助手，先检查再安装。main 使用「检查中文状态」→「安装 / 更新中文」；v0.2.0 请在汉化页点击安装。资源已内置，不用另外找汉化 ZIP。
+2. 打开中文助手，点「检查中文状态」→「安装 / 更新中文」。资源已内置，不用另外找汉化 ZIP。
 3. 在「窗口」页选择尺寸，点「应用窗口设置」，再启动游戏。
 4. 要固定在前面，打开「始终置顶」，并让中文助手保持运行。
 5. 想回英文，退出游戏，在「恢复」页点「恢复原版英文」。
@@ -40,9 +40,9 @@ v0.2.0 下载包保持原样，以下更新仅在 main 源码：检查与安装�
 
 ## 验证
 
-发布构建会跑基础回归、发布后 CLI version/help、六张 GUI 布局检查，再生成 ZIP 与 SHA256SUMS。新增三项内嵌资源测试验证首次释放、有效缓存幂等、损坏缓存修复。
+发布构建跑83项基础/专项/真实子进程中断回归、发布EXE version/help、GUI/CLI各自的内嵌资源首次释放/缓存幂等/损坏修复、25张GUI布局截图和13项点击分发，再生成ZIP与SHA256SUMS。
 
-此前本机回归 42 项、隔离集成总计 43 项通过；扫描 2063 / 匹配 2060 / 未匹配 3，原有缓存恢复哈希一致。真实游戏置顶往返验证：原值 false → 置顶 true → 恢复原值成功。发布包的最终结果见 [验证记录](docs/VALIDATION.md) 与发布资产 `tests.json`、`gui-layout.json`。
+本轮完整英文隔离集成合计84项：扫描2063、匹配2063、未匹配0、安装/恢复各2064文件、原哈希全部复原。96/120/144/192 DPI压力测试采用模拟布局尺度，不是物理多显示器跨屏实测；25图零文字越界告警还需人工复核。真实游戏自由拖边、长期置顶、硬件与成绩同步不在此轮验证范围。最终结果见[验证记录](docs/VALIDATION.md)与发布资产。
 
 ## 项目结构
 
@@ -64,11 +64,14 @@ docs/               新手、架构、更新、验证及发行说明
 ```powershell
 dotnet build src/Whoosh.Gui/Whoosh.Gui.csproj -c Release
 dotnet run --project tests/Whoosh.Tests/Whoosh.Tests.csproj -c Release
-./scripts/build.ps1 -Version 0.2.0
+./scripts/build.ps1 -Version 0.2.1
 ./MyWhooshZH.exe --layout-selftest ./layout-test
 ./MyWhooshZH.exe --ui-selftest ./game-test
 ./whoosh-zh.exe check
 ./whoosh-zh.exe install --yes
+./whoosh-zh.exe recover --yes
+./whoosh-zh.exe window-recover --yes
+./whoosh-zh.exe payload-selftest --directory ./new-isolated-payload
 ./whoosh-zh.exe restore --yes
 ```
 

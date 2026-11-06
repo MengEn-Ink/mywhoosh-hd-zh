@@ -21,18 +21,20 @@ Get-ChildItem -LiteralPath (Join-Path $root 'docs') -File | ForEach-Object {Copy
 $licenseDir=Join-Path $root 'licenses'; if(Test-Path -LiteralPath $licenseDir -PathType Container){Copy-Item -LiteralPath $licenseDir -Destination $bundle -Recurse}
 $sdkRoot=Split-Path -Parent (Get-Command $Dotnet).Source
 foreach($license in @('LICENSE.txt','ThirdPartyNotices.txt')){ $p=Join-Path $sdkRoot $license; if(Test-Path -LiteralPath $p -PathType Leaf){Copy-Item -LiteralPath $p -Destination (Join-Path $bundle ('DOTNET-'+$license))}else{throw ('Missing runtime distribution notice: '+$license)} }
-& (Join-Path $bundle 'whoosh-zh.exe') version
-if($LASTEXITCODE -ne 0){throw 'Published CLI version smoke test failed'}
+$cliVersion=& (Join-Path $bundle 'whoosh-zh.exe') version
+if($LASTEXITCODE -ne 0 -or $cliVersion.Trim() -ne $Version){throw 'Published CLI version smoke test failed'}
 & (Join-Path $bundle 'whoosh-zh.exe') --help
 if($LASTEXITCODE -ne 0){throw 'Published CLI help smoke test failed'}
+& (Join-Path $bundle 'whoosh-zh.exe') payload-selftest --directory (Join-Path $out 'published-payload-selftest')
+if($LASTEXITCODE -ne 0){throw 'Published embedded payload first-use/repair selftest failed'}
 $layoutDir=Join-Path $out 'gui-layout'
 $gui=Start-Process -FilePath (Join-Path $bundle 'MyWhooshZH.exe') -ArgumentList @('--layout-selftest',('"'+$layoutDir+'"')) -Wait -PassThru -WindowStyle Hidden
 if($gui.ExitCode -ne 0){throw 'Published GUI layout smoke test failed'}
 $layoutReport=Join-Path $layoutDir 'ui-selftest.json'
 if(-not(Test-Path -LiteralPath $layoutReport -PathType Leaf)){throw 'GUI report missing'}
 $layout=Get-Content -LiteralPath $layoutReport -Raw -Encoding UTF8 | ConvertFrom-Json
-if(-not $layout.pass -or $layout.mode -ne 'layout-only' -or @($layout.pages).Count -ne 4 -or @($layout.warnings).Count -ne 0 -or @($layout.smallView.warnings).Count -ne 0 -or @($layout.tinyView.warnings).Count -ne 0){throw 'GUI layout verification failed'}
-if(@(Get-ChildItem -LiteralPath $layoutDir -Filter '*.png' -File).Count -lt 9){throw 'GUI screenshots incomplete'}
+if(-not $layout.pass -or $layout.payloadTest.version -ne $Version -or $layout.mode -ne 'layout-only' -or @($layout.pages).Count -ne 4 -or @($layout.warnings).Count -ne 0 -or @($layout.smallView.warnings).Count -ne 0 -or @($layout.tinyView.warnings).Count -ne 0){throw 'GUI layout verification failed'}
+if(@(Get-ChildItem -LiteralPath $layoutDir -Filter '*.png' -File).Count -ne 25 -or @($layout.stressViews).Count -ne 16 -or -not $layout.payloadTest.pass -or -not $layout.interactions.pass -or $layout.interactions.passed -lt 13){throw 'GUI stress/interaction screenshots incomplete'}
 Copy-Item -LiteralPath $layoutReport -Destination (Join-Path $out 'gui-layout.json')
 $hashes=Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName | ForEach-Object {((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())+'  '+$_.FullName.Substring($bundle.Length+1).Replace('\','/')}
 [IO.File]::WriteAllLines((Join-Path $bundle 'SHA256SUMS.txt'),$hashes,(New-Object Text.UTF8Encoding $false))

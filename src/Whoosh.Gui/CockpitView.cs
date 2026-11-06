@@ -38,10 +38,13 @@ internal sealed class CockpitView : Control
     internal bool? ActualTopmost { get; set; }
     internal string ActualSize { get; set; } = "未启动";
     internal bool WindowBackupAvailable { get; set; }
+    internal bool InstallInterrupted { get; set; }
+    internal bool WindowInterrupted { get; set; }
+    internal int? CaptureDpi { get; set; }
     internal IReadOnlyList<string> RenderedText => _texts;
     internal IReadOnlyList<(RectangleF Rect,string Action)> Hits => _hits;
     private readonly List<string> _texts=[];
-    internal (string Label,string Action) PrimaryChinese => HasStats && Pending>0 && Supported ? ("安装 / 更新中文","install") : (HasStats?"重新检查中文":"检查中文状态","check");
+    internal (string Label,string Action) PrimaryChinese => InstallInterrupted ? ("处理中断记录","recover-install") : HasStats && Pending>0 && Supported ? ("安装 / 更新中文","install") : (HasStats?"重新检查中文":"检查中文状态","check");
     internal string TopmostText => ActualTopmost switch {true=>"已置顶",false=>Topmost?"守护待重试":"未置顶",_=>Topmost?"等待游戏启动":"未启动"};
     internal List<string> Log { get; } = [];
     internal List<string> Warnings { get; } = [];
@@ -51,7 +54,8 @@ internal sealed class CockpitView : Control
     private string? _hover;
     private readonly System.Windows.Forms.Timer _spin = new() { Interval = 160 };
 
-    private float S => DeviceDpi / 96f;
+    // Scale up with DPI only while the viewport can hold the minimum logical layout.
+    private float S => Math.Max(0.75f,Math.Min((CaptureDpi??DeviceDpi)/96f,Math.Min(ClientSize.Width/960f,ClientSize.Height/720f)));
     private float P(double v) => (float)(v * S);
     private float RailW => P(104);
 
@@ -187,8 +191,9 @@ internal sealed class CockpitView : Control
         float maxTitleW = w - x - P(24) - reserve;
         (string title, string sub) = Headline();
         float tp = FitSize(g, title, P(34), true, maxTitleW, P(19));
-        Txt(g, title, x - P(2), titleY, tp, Palette.Ink, true, maxTitleW, tp * 1.2f);
-        float subY = titleY + tp * 1.22f + P(6);
+        float titleH=tp*1.35f;
+        Txt(g, title, x - P(2), titleY, tp, Palette.Ink, true, maxTitleW, titleH);
+        float subY = titleY + titleH + P(6);
         float sp = P(13.5);
         Txt(g, sub, x - P(2), subY, sp, Palette.Muted, false, maxTitleW, sp * 1.35f);
         float bottom = subY + sp * 1.35f + P(26);
@@ -309,7 +314,7 @@ internal sealed class CockpitView : Control
         Hint(g, c.X, hintY, c.Width, "Alt + Enter：游戏内切全屏");
         Hint(g, c.X, hintY + P(22), c.Width, "置顶守护：每 2.5 秒确认");
 
-        Button(g, new RectangleF(c.X, btnY, c.Width, btnH), "应用窗口设置", true, "apply-window");
+        Button(g, new RectangleF(c.X, btnY, c.Width, btnH), WindowInterrupted?"处理窗口中断":"应用窗口设置", true, WindowInterrupted?"recover-window":"apply-window");
     }
 
     private void Hint(Graphics g, float x, float y, float w, string text)
@@ -382,13 +387,14 @@ internal sealed class CockpitView : Control
             "只替换界面文字和课程译文",
             "重新打开游戏，中文立即生效",
         ];
+        float stepGap=ClientSize.Height<P(780)?P(18):P(22);
         for (int i = 0; i < steps.Length; i++)
         {
-            using (var dot = new SolidBrush(Palette.PanelAlt)) g.FillEllipse(dot, c.X, y + i * P(22) + P(3), P(14), P(14));
-            Txt(g, (i + 1).ToString(), c.X + P(4), y + i * P(22) + P(4), P(9), Palette.Accent, true);
-            Txt(g, steps[i], c.X + P(22), y + i * P(22), P(11.5), Palette.Muted, false, c.Width - P(22), P(18));
+            using (var dot = new SolidBrush(Palette.PanelAlt)) g.FillEllipse(dot, c.X, y + i * stepGap + P(3), P(14), P(14));
+            Txt(g, (i + 1).ToString(), c.X + P(4), y + i * stepGap + P(4), P(9), Palette.Accent, true);
+            Txt(g, steps[i], c.X + P(22), y + i * stepGap, P(11.5), Palette.Muted, false, c.Width - P(22), P(18));
         }
-        y += P(70);
+        y += stepGap*3+P(4);
 
         float noteY = y + P(6);
         if (noteY + P(30) < btnY - P(34))
@@ -396,7 +402,7 @@ internal sealed class CockpitView : Control
 
         float split = MathF.Round(c.Width * 0.4f);
         Button(g, new RectangleF(c.X, btnY, split, btnH), "重新检查", false, "check");
-        Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), Supported?"安装 / 更新中文":"先检查游戏构建", true, Supported?"install":"check");
+        Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), InstallInterrupted?"处理中断记录":Supported?"安装 / 更新中文":"先检查游戏构建", true, InstallInterrupted?"recover-install":Supported?"install":"check");
 
         float lw = TW(g, "导入语言资源包 →", P(11), false);
         Txt(g, "导入语言资源包 →", c.X, btnY - P(24), P(11), Palette.Accent, false);
@@ -445,7 +451,7 @@ internal sealed class CockpitView : Control
             Txt(g, "退出游戏后应用。拖边无效时，请选预设尺寸。", c.X, noteY, P(11), Palette.Muted, false, c.Width, P(18));
 
         float split = MathF.Round(c.Width * 0.5f);
-        Button(g, new RectangleF(c.X, btnY, split, btnH), "应用窗口设置", true, "apply-window");
+        Button(g, new RectangleF(c.X, btnY, split, btnH), WindowInterrupted?"处理窗口中断":"应用窗口设置", true, WindowInterrupted?"recover-window":"apply-window");
         Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), "恢复窗口设置", false, "reset-window");
 
         RightStatusCard(g, right);
@@ -478,7 +484,7 @@ internal sealed class CockpitView : Control
         Txt(g, string.IsNullOrEmpty(BackupWhen) ? "还没有备份" : BackupWhen, c.X + P(12), y + P(24), P(13),
             Palette.Ink, true, c.Width - P(24));
         Txt(g, BackupAvailable ? "可恢复：界面 / 课程" : "本工具没有汉化回退记录", c.X + P(12), y + P(44), P(10.5), Palette.Dim, false, c.Width - P(24));
-        Txt(g, BackupAvailable ? "备份完整，可以安全恢复。" : "没有可恢复的备份记录。", c.X + P(12), y + P(58), P(10.5),
+        Txt(g, BackupAvailable ? "恢复前仍会检查当前文件。" : "没有可恢复的备份记录。", c.X + P(12), y + P(58), P(10.5),
             BackupAvailable ? Palette.Ok : Palette.Warn, false, c.Width - P(24));
 
         float rowY = y + snapH + P(18);
@@ -491,7 +497,7 @@ internal sealed class CockpitView : Control
         Hit(c.X - P(4), btnY - P(30), lw + P(8), P(24), "migrate");
 
         float split = MathF.Round(c.Width * 0.52f);
-        Button(g, new RectangleF(c.X, btnY, split, btnH), "恢复原版英文", true, "restore");
+        Button(g, new RectangleF(c.X, btnY, split, btnH), InstallInterrupted?"处理中断记录":"恢复原版英文", true, InstallInterrupted?"recover-install":"restore");
         Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), "打开备份目录", false, "open-backup");
 
         RightStatusCard(g, right);
@@ -509,7 +515,7 @@ internal sealed class CockpitView : Control
         y = Row(g, c.X, y, c.Width, "数据目录", "本机 AppData");
         if (!string.IsNullOrEmpty(Notice))
         {
-            Txt(g, "提示：" + Notice, c.X, y + P(2), P(10.5), Palette.Warn, false, c.Width, P(36));
+            TxtEllipsis(g, "提示：" + Notice, new RectangleF(c.X,y+P(2),c.Width,P(36)), P(10.5), Palette.Warn);
             y += P(40);
         }
         y += P(8);
@@ -520,15 +526,15 @@ internal sealed class CockpitView : Control
         {
             float maxH = P(30);
             if (y + maxH > r.Bottom - P(52)) break;
-            Txt(g, Log[i], c.X, y, P(10.5), Palette.Muted, false, c.Width, maxH);
-            y += maxH - P(8);
+            TxtEllipsis(g, Log[i], new RectangleF(c.X,y,c.Width,maxH), P(10.5), Palette.Muted);
+            y += maxH + P(4);
         }
         if (shown == 0) Txt(g, "还没有操作记录。", c.X, y, P(10.5), Palette.Dim, false, c.Width);
 
-        float lw = TW(g, "打开日志目录 →", P(11), false);
+        float lw = TW(g, "查看完整记录 →", P(11), false);
         float ly = r.Bottom - P(30);
-        Txt(g, "打开日志目录 →", c.X + c.Width - lw, ly, P(11), Palette.Accent, false);
-        Hit(c.X + c.Width - lw - P(6), ly - P(6), lw + P(12), P(24), "open-log");
+        Txt(g, "查看完整记录 →", c.X + c.Width - lw, ly, P(11), Palette.Accent, false);
+        Hit(c.X + c.Width - lw - P(6), ly - P(6), lw + P(12), P(24), "show-details");
     }
 
     // ---------------------------------------------------------------- 组件
@@ -677,9 +683,11 @@ internal sealed class CockpitView : Control
     private float Row(Graphics g, float x, float y, float w, string label, string value)
     {
         float lp = P(12), vp = P(13);
-        float vw = TW(g, value, vp, true);
-        Txt(g, label, x, y + P(3), lp, Palette.Muted, false, w - vw - P(10));
-        Txt(g, value, x + w - vw, y, vp, value.Length > 14 ? Palette.Muted : Palette.Ink, true, w);
+        float labelW=w*0.48f,valueW=w-labelW-P(10);
+        float labelSize=FitSize(g,label,lp,false,labelW,P(9));
+        float valueSize=FitSize(g,value,vp,true,valueW,P(9));
+        TxtEllipsis(g,label,new RectangleF(x,y+P(3),labelW,P(19)),labelSize,Palette.Muted);
+        TxtEllipsis(g,value,new RectangleF(x+labelW+P(10),y,valueW,P(21)),valueSize,value.Length>14?Palette.Muted:Palette.Ink,true,StringAlignment.Far);
         float rowH=ClientSize.Height<P(780)?P(25):P(29);
         using (var sep = new Pen(Palette.Line)) g.DrawLine(sep, x, y + rowH-P(5), x + w, y + rowH-P(5));
         return y + rowH;
@@ -712,6 +720,13 @@ internal sealed class CockpitView : Control
         else g.DrawString(text, font, brush, x, y, sf);
     }
 
+    private void TxtEllipsis(Graphics g,string text,RectangleF box,float px,Color color,bool bold=false,StringAlignment align=StringAlignment.Near)
+    {
+        _texts.Add(text);
+        using var font=Palette.F(px,bold);using var brush=new SolidBrush(color);
+        using var sf=new StringFormat(StringFormat.GenericTypographic){Alignment=align,Trimming=StringTrimming.EllipsisCharacter};
+        g.DrawString(text,font,brush,box,sf);
+    }
     private void TxtCenter(Graphics g, string text, RectangleF box, float px, Color color, bool bold)
     {
         _texts.Add(text);

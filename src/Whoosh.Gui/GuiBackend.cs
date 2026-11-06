@@ -7,6 +7,8 @@ internal sealed class GuiBackend
 {
     internal Func<object> Check { get; init; } = () => Operations.Check();
     internal Func<object> Install { get; init; } = () => Operations.Install();
+    internal Func<object> RecoverInstall { get; init; } = () => Operations.RecoverPending();
+    internal Func<object> RecoverWindow { get; init; } = () => GameWindow.RecoverCurrent();
     internal Func<UiSnapshot> Snapshot { get; init; } = Read;
     internal bool TestMode { get; init; }
     internal static GuiBackend LayoutFixture() => new()

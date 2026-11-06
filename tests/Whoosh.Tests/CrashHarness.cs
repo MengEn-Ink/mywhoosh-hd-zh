@@ -44,28 +44,25 @@ internal static class CrashHarness
             Task.WaitAll(output,error);assert(p.ExitCode==86,"child did not exit at injected boundary: "+error.Result);
             if(mode=="committed")
             {
-                var tx=new Transactions(root,state,"crash");bool recheck=false;try{tx.Apply(()=>new([],0,0,0,0),()=>{});}catch(IOException){recheck=true;}
-                assert(recheck && tx.Status()=="installed","commit mistaken for rollback");
+                var tx=new Transactions(root,state,"crash");tx.RecoverPending(()=>{});
+                assert(tx.Status()=="installed","commit mistaken for rollback");
                 assert(File.ReadAllBytes(SafeFiles.Within(root,Rel)).SequenceEqual(After),"committed files reverted");
                 assert(!File.Exists(Path.Combine(state,"pending-install.json")),"committed marker not cleared");
             }
             else if(mode=="first"||mode=="incremental")
             {
                 assert(File.Exists(Path.Combine(state,"pending-install.json")),"pending journal absent");var tx=new Transactions(root,state,"crash");
-                if(mode=="first")tx.Restore(()=>{});
-                else
-                {
-                    bool rejected=false;try{tx.Apply(()=>new([],0,0,0,0),()=>{});}catch(IOException){rejected=true;}
-                    assert(rejected,"should request recheck after recovery");assert(File.ReadAllBytes(SafeFiles.Within(root,First)).SequenceEqual(After),"previous batch rolled back");
-                }
+                tx.RecoverPending(()=>{});
+                if(mode=="incremental")assert(File.ReadAllBytes(SafeFiles.Within(root,First)).SequenceEqual(After),"previous batch rolled back");
                 assert(File.ReadAllBytes(SafeFiles.Within(root,Rel)).SequenceEqual(Before),"interrupted write not restored");
                 assert(!File.Exists(Path.Combine(state,"pending-install.json")),"pending journal remained");
             }
             else
             {
                 assert(File.Exists(Path.Combine(state,"pending-window.json")),"window pending absent");
-                if(mode=="window-apply"){try{GameWindow.Apply(root,state,1280,720,()=>{});}catch(IOException){}assert(GameWindow.Inspect(root,state).Width==1920,"first window file not restored");}
-                else{try{GameWindow.Apply(root,state,1600,900,()=>{});}catch(IOException){}assert(GameWindow.Inspect(root,state).Width==1280&&GameWindow.Inspect(root,state).BackupAvailable,"restore crash lost baseline");}
+                GameWindow.RecoverPending(root,state,()=>{});
+                if(mode=="window-apply")assert(GameWindow.Inspect(root,state).Width==1920,"first window file not restored");
+                else assert(GameWindow.Inspect(root,state).Width==1280&&GameWindow.Inspect(root,state).BackupAvailable,"restore crash lost baseline");
                 assert(!File.Exists(Path.Combine(state,"pending-window.json")),"pending window not cleared");
             }
         });
