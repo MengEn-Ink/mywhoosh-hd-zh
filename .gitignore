@@ -14,3 +14,5 @@ artifacts/
 *.key
 .env*
 !tests/fixtures/.gitkeep
+gui-shots/
+selftest/

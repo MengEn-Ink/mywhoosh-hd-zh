@@ -77,6 +77,20 @@ public static class NativeWindow
         return SetWindowPos(hWnd, topmost ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
+    private const int GWL_EXSTYLE = -20;
+    private const long WS_EX_TOPMOST = 0x00000008;
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    /// <summary>读取窗口当前的置顶样式位，用于校验置顶是否真的生效。</summary>
+    public static bool IsTopmost(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || !OperatingSystem.IsWindows()) return false;
+        IntPtr style = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+        return (style.ToInt64() & WS_EX_TOPMOST) != 0;
+    }
+
     /// <summary>获取窗口标题。</summary>
     public static string GetTitle(IntPtr hWnd)
     {
