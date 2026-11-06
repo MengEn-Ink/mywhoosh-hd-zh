@@ -57,7 +57,14 @@ public static class PayloadStore
             if (SafeFiles.Hash(bytes) != expected) throw new InvalidDataException("资源 SHA-256 不匹配：" + name);
             picked.Add(name, bytes);
         }
-        if (picked.Count != AppInfo.PayloadHashes.Count) throw new InvalidDataException("缺少完整的三项汉化资源。");
+        if(!picked.ContainsKey("courses-supplement.json"))
+        {
+            using var s=typeof(PayloadStore).Assembly.GetManifestResourceStream(ResPrefix+"courses-supplement.json")??throw new InvalidDataException("内置增补字典缺失。");
+            using var m=new MemoryStream();s.CopyTo(m);var bytes=m.ToArray();
+            if(SafeFiles.Hash(bytes)!=AppInfo.PayloadHashes["courses-supplement.json"])throw new InvalidDataException("增补字典校验失败。");
+            picked.Add("courses-supplement.json",bytes);
+        }
+        if (picked.Count != AppInfo.PayloadHashes.Count) throw new InvalidDataException("缺少完整汉化资源。");
         foreach (var item in picked) SafeFiles.AtomicWrite(SafeFiles.Within(destination, item.Key), item.Value);
         Validate(destination);
     }
@@ -117,9 +124,15 @@ public static class Translation
         }
         return changes;
     }
+    public static IEnumerable<JsonNode> CourseRows(string payload)
+    {
+        foreach(string name in new[]{"courses.json","courses-supplement.json"})
+            foreach(var row in Parse(SafeFiles.ReadBounded(Path.Combine(payload,name))).AsArray())
+                yield return row??throw new InvalidDataException("空字典行。");
+    }
     public static PatchPlan Plan(string saved, string payload)
     {
-        var dict = Parse(SafeFiles.ReadBounded(Path.Combine(payload,"courses.json"))).AsArray();
+        var dict = CourseRows(payload);
         var lookup = new Dictionary<(string,string),(string,string)>(); var translated = new HashSet<(string,string)>();
         foreach(var row in dict)
         {

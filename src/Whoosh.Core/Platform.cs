@@ -17,10 +17,12 @@ public static class AppInfo
     {
         ["MyWhooshChinese_P.pak"] = PakHash,
         ["courses.json"] = "2E9885819DAF02CC3A29BBD00A8D7136C490C9C3B8EB976C3C1BC17B9BF57A09",
+        ["courses-supplement.json"] = "F5BFB441CFFB72D082396A1E84D3C6AFC5E6283F3D14473B57E3D5C4C9357CB9",
         ["categories.json"] = "1A6211833306164351DCA52C4DD23688CA6BE1C7F86AB7F4211E798D0578F120"
     };
     public static string Home => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MyWhooshHdZh");
-    public static string Payload => Path.Combine(Home, "payload", "v1.1.0");
+    public const string PayloadVersion = "v1.1.0-r1";
+    public static string Payload => Path.Combine(Home, "payload", PayloadVersion);
     public static string State => Path.Combine(Home, "state", Family);
     public static JsonSerializerOptions JsonOptions { get; } = new() { WriteIndented = true, PropertyNameCaseInsensitive = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.Create(System.Text.Unicode.UnicodeRanges.All) };
 }
@@ -116,13 +118,15 @@ public static class WindowsTarget
         if (!Directory.Exists(target.SavedRoot)) throw new DirectoryNotFoundException("请用当前账户先启动游戏并进入训练列表。");
         if (SafeFiles.HashFile(target.GamePak) != AppInfo.GameHash) throw new InvalidDataException("主资源哈希不匹配；不能靠修改哈希配置绕过兼容性验证。");
     }
+    public static bool IsGameProcess(string name) => System.Text.RegularExpressions.Regex.IsMatch(name,@"^MyWhoosh(?:HD)?(?:-(?:Win64|WinGDK|UWP64)-Shipping)?$",System.Text.RegularExpressions.RegexOptions.IgnoreCase|System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    public static bool BlocksWrites(string name) => IsGameProcess(name) || name.StartsWith("MyWhoosh_HD_",StringComparison.OrdinalIgnoreCase) && name.Contains("Setup",StringComparison.OrdinalIgnoreCase) || name.StartsWith("MWCN-Setup",StringComparison.OrdinalIgnoreCase);
     public static void AssertClosed()
     {
         foreach (var p in Process.GetProcesses())
         {
             using (p)
             {
-                if (p.ProcessName.StartsWith("MyWhoosh", StringComparison.OrdinalIgnoreCase) && !p.ProcessName.Equals("MyWhooshZH", StringComparison.OrdinalIgnoreCase))
+                if (BlocksWrites(p.ProcessName))
                     throw new IOException("请完全退出 MyWhoosh 游戏和旧版安装器后重试。");
             }
         }

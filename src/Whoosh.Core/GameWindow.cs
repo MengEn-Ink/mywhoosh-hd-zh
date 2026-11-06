@@ -10,6 +10,9 @@ public sealed class WindowBackup
     public Dictionary<string,byte[]?> Originals { get; set; }=[];
     public Dictionary<string,Dictionary<string,string>> Applied { get; set; }=[];
     public bool Topmost { get; set; }
+    public string Revision { get; set; } = "";
+    public bool Restored { get; set; }
+    public DateTime? CreatedUtc { get; set; }
 }
 public static class GameWindow
 {
@@ -44,11 +47,12 @@ public static class GameWindow
         string p=SafeFiles.Within(saved,Files[0]);var vals=File.Exists(p)?ReadSection(Translation.Decode(SafeFiles.ReadBounded(p)).Text,UserSection):[];
         int Read(string k)=>vals.TryGetValue(k,out var s)&&int.TryParse(s,out var n)?n:0;
         string journal=Path.Combine(state,"window.json");
-        bool topmost=false;
-        if(File.Exists(journal)){try{topmost=JsonSerializer.Deserialize<WindowBackup>(SafeFiles.ReadBounded(journal),AppInfo.JsonOptions)?.Topmost??false;}catch{}}
-        return new(Read("FullscreenMode")==2,Read("ResolutionSizeX"),Read("ResolutionSizeY"),File.Exists(journal),topmost,"配置检查不替代游戏实际窗口验证。");
+        WindowBackup? backup=File.Exists(journal)?Load(saved,journal):null;
+        bool topmost=backup is {Restored:false,Topmost:true};
+        bool pending=File.Exists(SafeFiles.Within(state,"pending-window.json"));
+        return new(Read("FullscreenMode")==2,Read("ResolutionSizeX"),Read("ResolutionSizeY"),!pending && backup is {Restored:false} && backup.Originals.Count>0,topmost,pending?"窗口批次中断，需先恢复。":"配置检查不替代游戏实际窗口验证。");
     }
-    public static WindowState Apply(string saved,string state,int width,int height,Action closed,bool topmost=false,int fullscreenMode=2)
+    public static WindowState Apply(string saved,string state,int width,int height,Action closed,bool topmost=false,int fullscreenMode=2,Action<int>? fault=null)
     {
         if(width<800||width>3840||height<450||height>2160)throw new ArgumentException("窗口范围：宽800–3840，高450–2160。");
         if(fullscreenMode<0||fullscreenMode>2)throw new ArgumentException("窗口模式：0全屏 1无边框 2窗口。");
@@ -56,7 +60,12 @@ public static class GameWindow
         bool borderless=fullscreenMode==1;
         closed();SafeFiles.NoLinks(state);Directory.CreateDirectory(state);
         using var guard=new FileStream(Path.Combine(state,"window.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
-        string journal=Path.Combine(state,"window.json");var b=File.Exists(journal)?Load(saved,journal):new WindowBackup{SavedRoot=Path.GetFullPath(saved)};
+        if(DurableBatch.Recover(saved,state,"pending-window.json","window.json",r=>Files.Contains(r),b=>Validate(saved,b)))throw new IOException("窗口批次已恢复，请重新应用。");
+        string journal=Path.Combine(state,"window.json");
+        byte[]? beforeMetadata=File.Exists(journal)?SafeFiles.ReadBounded(journal):null;
+        var b=beforeMetadata==null?new WindowBackup{SavedRoot=Path.GetFullPath(saved)}:Validate(saved,beforeMetadata);
+        if(b.Restored)b=new WindowBackup{SavedRoot=Path.GetFullPath(saved)};
+        b.CreatedUtc??=DateTime.UtcNow;
         b.Topmost=topmost;
         var settings=new Dictionary<string,Dictionary<string,string>>
         {
@@ -64,40 +73,61 @@ public static class GameWindow
             [Files[1]]=new(){["bUseBorderlessWindow"]=borderless?"True":"False",["bAllowWindowResize"]="True",["bShouldWindowPreserveAspectRatio"]="False",["bAllowMaximize"]="True",["bAllowMinimize"]="True"}
         };
         var staged=new Dictionary<string,byte[]>();
+        var current=new Dictionary<string,byte[]?>();
         foreach(var item in settings)
         {
             string p=SafeFiles.Within(saved,item.Key);byte[]? raw=File.Exists(p)?SafeFiles.ReadBounded(p):null;
+            current[item.Key]=raw;
             if(!b.Originals.ContainsKey(item.Key))b.Originals[item.Key]=raw;
             var f=raw==null?(Text:"",Encoding:(Encoding)new UTF8Encoding(false,true),Bom:false):Translation.Decode(raw);
             staged[item.Key]=Translation.Encode(UpdateSection(f.Text,item.Key==Files[0]?UserSection:ProjectSection,item.Value.ToDictionary(k=>k.Key,k=>(string?)k.Value)),f.Encoding,f.Bom);
         }
-        b.Applied=settings;SafeFiles.AtomicWrite(journal,JsonSerializer.SerializeToUtf8Bytes(b,AppInfo.JsonOptions));
-        foreach(var item in staged){closed();SafeFiles.AtomicWrite(SafeFiles.Within(saved,item.Key),item.Value);}
+        b.Applied=settings;b.Revision=Guid.NewGuid().ToString("N");
+        DurableBatch.Apply(saved,state,"pending-window.json","window.json",staged.Select(k=>new DurableBatch.Change(k.Key,current[k.Key],k.Value)).ToArray(),beforeMetadata,JsonSerializer.SerializeToUtf8Bytes(b,AppInfo.JsonOptions),r=>Files.Contains(r),bytes=>Validate(saved,bytes),closed,fault);
         return Inspect(saved,state);
     }
-    private static WindowBackup Load(string saved,string journal)
+    private static WindowBackup Load(string saved,string journal)=>Validate(saved,SafeFiles.ReadBounded(journal));
+    private static WindowBackup Validate(string saved,byte[] bytes)
     {
-        var b=JsonSerializer.Deserialize<WindowBackup>(SafeFiles.ReadBounded(journal),AppInfo.JsonOptions)??throw new InvalidDataException("窗口备份损坏。");
-        if(!Path.GetFullPath(b.SavedRoot).Equals(Path.GetFullPath(saved),StringComparison.OrdinalIgnoreCase)||b.Originals.Keys.Any(k=>!Files.Contains(k))||b.Applied.Keys.Any(k=>!Files.Contains(k)))throw new InvalidDataException("窗口备份归属不匹配。");return b;
+        var b=JsonSerializer.Deserialize<WindowBackup>(bytes,AppInfo.JsonOptions)??throw new InvalidDataException("窗口备份损坏。");
+        if(!Path.GetFullPath(b.SavedRoot).Equals(Path.GetFullPath(saved),StringComparison.OrdinalIgnoreCase)||b.Originals.Keys.Any(k=>!Files.Contains(k))||b.Applied.Keys.Any(k=>!Files.Contains(k))||b.Originals.Keys.Any(k=>!b.Applied.ContainsKey(k)))throw new InvalidDataException("窗口备份归属不匹配。");
+        foreach(var item in b.Applied)
+        {
+            string[] keys=item.Key==Files[0]?["FullscreenMode","LastConfirmedFullscreenMode","PreferredFullscreenMode","ResolutionSizeX","ResolutionSizeY","LastUserConfirmedResolutionSizeX","LastUserConfirmedResolutionSizeY","DesiredScreenWidth","DesiredScreenHeight","LastUserConfirmedDesiredScreenWidth","LastUserConfirmedDesiredScreenHeight"]:["bUseBorderlessWindow","bAllowWindowResize","bShouldWindowPreserveAspectRatio","bAllowMaximize","bAllowMinimize"];
+            if(item.Value.Keys.Any(k=>!keys.Contains(k)))throw new InvalidDataException("窗口账本包含未知配置键。");
+        }
+        return b;
     }
-    public static WindowState Restore(string saved,string state,Action closed)
+    public static DateTime? BackupCreated(string saved,string state)=>File.Exists(Path.Combine(state,"window.json"))?Load(saved,Path.Combine(state,"window.json")).CreatedUtc:null;
+    public static WindowState Restore(string saved,string state,Action closed,Action<int>? fault=null)
     {
-        closed();string journal=Path.Combine(state,"window.json");if(!File.Exists(journal))return Inspect(saved,state);
+        closed();SafeFiles.NoLinks(state);Directory.CreateDirectory(state);
         using var guard=new FileStream(Path.Combine(state,"window.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
-        var b=Load(saved,journal);
+        DurableBatch.Recover(saved,state,"pending-window.json","window.json",r=>Files.Contains(r),bytes=>Validate(saved,bytes));
+        string journal=Path.Combine(state,"window.json");if(!File.Exists(journal))return Inspect(saved,state);
+        byte[] beforeMetadata=SafeFiles.ReadBounded(journal);
+        var b=Validate(saved,beforeMetadata);if(b.Restored)return Inspect(saved,state);
+        var changes=new List<DurableBatch.Change>();
         foreach(var item in b.Originals)
         {
             string p=SafeFiles.Within(saved,item.Key);if(!File.Exists(p))throw new IOException("窗口配置已丢失，请先检查。");
             byte[] raw=SafeFiles.ReadBounded(p);var f=Translation.Decode(raw);string section=item.Key==Files[0]?UserSection:ProjectSection;
             var old=item.Value==null?new Dictionary<string,string>():ReadSection(Translation.Decode(item.Value).Text,section);
             var values=b.Applied[item.Key].Keys.ToDictionary(k=>k,k=>old.TryGetValue(k,out var v)?v:null);
+            var now=ReadSection(f.Text,section);
+            foreach(var applied in b.Applied[item.Key])
+            {
+                string? val=now.GetValueOrDefault(applied.Key);string? baseline=old.GetValueOrDefault(applied.Key);
+                if(val!=applied.Value && val!=baseline)throw new IOException("窗口配置被后续修改，保留当前设置。");
+            }
             string reverted=UpdateSection(f.Text,section,values);
-            // Preserve unrelated settings; when semantically equal to the baseline restore original bytes.
-            if(item.Value!=null&&SameSettings(reverted,Translation.Decode(item.Value).Text))SafeFiles.AtomicWrite(p,item.Value);
-            else if(item.Value==null&&string.IsNullOrWhiteSpace(reverted.Replace("["+section+"]","")))File.Delete(p);
-            else SafeFiles.AtomicWrite(p,Translation.Encode(reverted,f.Encoding,f.Bom));
+            byte[]? after=item.Value!=null&&SameSettings(reverted,Translation.Decode(item.Value).Text)?item.Value:
+                item.Value==null&&string.IsNullOrWhiteSpace(reverted.Replace("["+section+"]",""))?null:Translation.Encode(reverted,f.Encoding,f.Bom);
+            changes.Add(new(item.Key,raw,after));
         }
-        File.Move(journal,journal+".restored-"+Guid.NewGuid().ToString("N"));return Inspect(saved,state);
+        b.Restored=true;b.Topmost=false;b.Revision=Guid.NewGuid().ToString("N");
+        DurableBatch.Apply(saved,state,"pending-window.json","window.json",changes,beforeMetadata,JsonSerializer.SerializeToUtf8Bytes(b,AppInfo.JsonOptions),r=>Files.Contains(r),bytes=>Validate(saved,bytes),closed,fault);
+        return Inspect(saved,state);
     }
     private static bool SameSettings(string a,string b)
     {
@@ -112,8 +142,10 @@ public static class GameWindow
     {
         closed();SafeFiles.NoLinks(state);Directory.CreateDirectory(state);
         using var guard=new FileStream(Path.Combine(state,"window.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
+        if(File.Exists(SafeFiles.Within(state,"pending-window.json")))throw new IOException("先恢复中断窗口批次，再修改置顶。");
         string journal=Path.Combine(state,"window.json");
         var b=File.Exists(journal)?Load(saved,journal):new WindowBackup{SavedRoot=Path.GetFullPath(saved)};
+        if(b.Restored)b=new WindowBackup{SavedRoot=Path.GetFullPath(saved)};
         b.Topmost=topmost;SafeFiles.AtomicWrite(journal,JsonSerializer.SerializeToUtf8Bytes(b,AppInfo.JsonOptions));
         return Inspect(saved,state);
     }

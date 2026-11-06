@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Whoosh.Core;
 
@@ -9,6 +10,8 @@ public sealed class Journal
     public string Status { get; set; } = "prepared";
     public string Family { get; set; } = "";
     public string SavedRoot { get; set; } = "";
+    public string Revision { get; set; } = "";
+    public DateTime? CreatedUtc { get; set; }
     public List<JournalEntry> Entries { get; set; } = [];
 }
 public sealed class JournalEntry
@@ -32,10 +35,10 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
         try{return new FileStream(Path.Combine(stateRoot,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
         catch(IOException){throw new IOException("另一个操作正在执行，请等待完成。");}
     }
-    private Journal? Load()
+    private Journal? Load() => File.Exists(Active) ? ValidateBytes(SafeFiles.ReadBounded(Active)) : null;
+    internal Journal ValidateBytes(byte[] bytes)
     {
-        if(!File.Exists(Active)) return null;
-        var j=JsonSerializer.Deserialize<Journal>(SafeFiles.ReadBounded(Active),AppInfo.JsonOptions)??throw new InvalidDataException("恢复账本为空。");
+        var j=JsonSerializer.Deserialize<Journal>(bytes,AppInfo.JsonOptions)??throw new InvalidDataException("恢复账本为空。");
         if(j.Schema!=1 || j.Family!=family || !Path.GetFullPath(j.SavedRoot).Equals(Path.GetFullPath(savedRoot),StringComparison.OrdinalIgnoreCase) || !Guid.TryParseExact(j.Id,"N",out _)) throw new InvalidDataException("恢复账本归属或版本不匹配。");
         if(j.Entries.Count>20000)throw new InvalidDataException("恢复账本条目异常。");
         var seen=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -66,41 +69,55 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
     }
     public OperationResult Apply(Func<PatchPlan> buildPlan,Action assertClosed,Action<int>? fault=null)
     {
-        using var guard=Lock();assertClosed();var existing=Load();
+        using var guard=Lock();assertClosed();
+        if(DurableBatch.Recover(savedRoot,stateRoot,"pending-install.json","active.json",SafeFiles.AllowedTarget,b=>ValidateBytes(b)))
+            throw new IOException("上次增量批次已恢复，请重新检查再安装。");
+        var existing=Load();
         if(existing is {Status:"prepared"}){Recover(existing);throw new IOException("检测到上次中断，已尝试回滚；请重新检查后再安装。");}
         if(existing is {Status:"conflict"})throw new IOException("上次事务有冲突，需先恢复或保留冲突文件后处理。");
         var plan=buildPlan();
         if(plan.Changes.Count==0)return new("unchanged",0,plan.Unmatched,"已匹配的内容无需重复安装；非本工具管理的旧补丁请使用原恢复程序。");
-        if(existing is {Status:"installed"} && existing.Entries.Any(e=>!e.Restored))throw new IOException("已有本工具安装记录，请先恢复后更新，避免丢失首次备份。");
-        if(existing!=null)SafeFiles.AtomicWrite(SafeFiles.Within(stateRoot,existing.Id+"/completed-journal.json"),JsonSerializer.SerializeToUtf8Bytes(existing,AppInfo.JsonOptions));
-        var j=new Journal{Id=Guid.NewGuid().ToString("N"),Family=family,SavedRoot=Path.GetFullPath(savedRoot)};
-        int i=0;
+        byte[]? beforeMetadata=File.Exists(Active)?SafeFiles.ReadBounded(Active):null;
+        bool incremental=existing is {Status:"installed"} && existing.Entries.Any(e=>!e.Restored);
+        if(!incremental && existing!=null)SafeFiles.AtomicWrite(SafeFiles.Within(stateRoot,existing.Id+"/completed-journal-"+Guid.NewGuid().ToString("N")+".json"),JsonSerializer.SerializeToUtf8Bytes(existing,AppInfo.JsonOptions));
+        var j=incremental?existing!:new Journal{Id=Guid.NewGuid().ToString("N"),CreatedUtc=DateTime.UtcNow,Family=family,SavedRoot=Path.GetFullPath(savedRoot)};
         foreach(var c in plan.Changes)
         {
             if(!SafeFiles.AllowedTarget(c.Relative))throw new InvalidDataException("写入目标不在允许范围。");
             var path=SafeFiles.Within(savedRoot,c.Relative);
             string? before=c.Before==null?null:SafeFiles.Hash(c.Before);
             if((File.Exists(path)?SafeFiles.HashFile(path):null)!=before)throw new IOException("文件已变化，请重新检查。");
-            string? backup=null;
-            if(c.Before!=null){backup=j.Id+"/"+(i++)+".bin";SafeFiles.AtomicWrite(SafeFiles.Within(stateRoot,backup),c.Before);}
-            j.Entries.Add(new(){Relative=c.Relative,BeforeHash=before,AfterHash=SafeFiles.Hash(c.After),Backup=backup,Texts=c.Texts});
-        }
-        Save(j);int written=0;
-        try
-        {
-            foreach(var c in plan.Changes)
+            var prior=j.Entries.SingleOrDefault(e=>e.Relative.Equals(c.Relative,StringComparison.OrdinalIgnoreCase));
+            if(prior is {Restored:false})
             {
-                assertClosed();var path=SafeFiles.Within(savedRoot,c.Relative);
-                if((File.Exists(path)?SafeFiles.HashFile(path):null)!=(c.Before==null?null:SafeFiles.Hash(c.Before)))throw new IOException("并发改动，停止写入。");
-                SafeFiles.AtomicWrite(path,c.After);
-                if(SafeFiles.HashFile(path)!=SafeFiles.Hash(c.After))throw new IOException("安装后哈希失败。");
-                written++;
-                fault?.Invoke(written);
+                if(c.Relative=="Paks/MyWhooshChinese_P.pak" && before!=null && before!=prior.AfterHash)
+                    throw new IOException("已有界面补丁变化，拒绝更新。");
+                // Re-download of the same known course is safe; a new semantic course at the same path is not.
+                foreach(var t in c.Texts)
+                {
+                    var first=prior.Texts.SingleOrDefault(x=>x.Pointer==t.Pointer);
+                    if(first==null || first.Original!=t.Original)throw new IOException("同一路径课程原文变化，请先恢复该记录后重新检查。");
+                }
+                prior.AfterHash=SafeFiles.Hash(c.After);
+                foreach(var t in c.Texts)
+                {
+                    int ix=prior.Texts.FindIndex(x=>x.Pointer==t.Pointer);
+                    prior.Texts[ix]=new(t.Pointer,prior.Texts[ix].Original,t.Patched);
+                }
             }
-            j.Status="installed";Save(j);return new("installed",written,plan.Unmatched,"文件安装与写回校验通过；游戏画面需启动后确认。");
+            else
+            {
+                if(prior!=null)j.Entries.Remove(prior);
+                string? backup=null;
+                if(c.Before!=null){backup=j.Id+"/original-"+Guid.NewGuid().ToString("N")+".bin";SafeFiles.AtomicWrite(SafeFiles.Within(stateRoot,backup),c.Before);}
+                j.Entries.Add(new(){Relative=c.Relative,BeforeHash=before,AfterHash=SafeFiles.Hash(c.After),Backup=backup,Texts=c.Texts});
+            }
         }
-        catch{Recover(j);throw;}
-    }
+        j.Status="installed";j.Revision=Guid.NewGuid().ToString("N");
+        DurableBatch.Apply(savedRoot,stateRoot,"pending-install.json","active.json",
+            plan.Changes.Select(c=>new DurableBatch.Change(c.Relative,c.Before,c.After)).ToArray(),
+            beforeMetadata,JsonSerializer.SerializeToUtf8Bytes(j,AppInfo.JsonOptions),SafeFiles.AllowedTarget,b=>ValidateBytes(b),assertClosed,fault);
+        return new("installed",plan.Changes.Count,plan.Unmatched,incremental?"增量更新完成，首次备份仍保留。":"文件安装与写回校验通过；游戏画面需启动后确认。");    }
     private void Recover(Journal j)
     {
         int conflicts=0;
@@ -113,9 +130,15 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
         }
         j.Status=conflicts==0?"rolled-back":"conflict";Save(j);
     }
+    private static JsonNode NonText(JsonNode node,List<TextChange> texts)
+    {
+        var copy=node.DeepClone();foreach(var t in texts)Translation.Set(copy,t.Pointer,"");return copy;
+    }
     public OperationResult Restore(Action assertClosed)
     {
-        using var guard=Lock();assertClosed();var j=Load();
+        using var guard=Lock();assertClosed();
+        DurableBatch.Recover(savedRoot,stateRoot,"pending-install.json","active.json",SafeFiles.AllowedTarget,b=>ValidateBytes(b));
+        var j=Load();
         if(j==null)return new("unmanaged",0,0,"没有本工具备份账本。不会认领或删除旧安装器生成的补丁。");
         if(j.Status=="prepared"){Recover(j);return new(j.Status,0,0,"已处理中断事务。");}
         int changed=0,skipped=0;
@@ -132,7 +155,8 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
                 if(e.Backup==null)File.Delete(p);else SafeFiles.AtomicWrite(p,SafeFiles.ReadBounded(SafeFiles.Within(stateRoot,e.Backup),32*1024*1024));
                 e.Restored=true;changed++;Save(j);continue;
             }
-            if(hash==e.AfterHash)
+            if(hash==e.AfterHash && e.Backup!=null &&
+                JsonNode.DeepEquals(NonText(Translation.Parse(raw),e.Texts),NonText(Translation.Parse(SafeFiles.ReadBounded(SafeFiles.Within(stateRoot,e.Backup))),e.Texts)))
             {
                 SafeFiles.AtomicWrite(p,SafeFiles.ReadBounded(SafeFiles.Within(stateRoot,e.Backup!)));e.Restored=true;changed++;Save(j);continue;
             }
@@ -155,10 +179,13 @@ public sealed class Transactions(string savedRoot,string stateRoot,string family
         j.Status=j.Entries.All(e=>e.Restored)?"restored":"conflict";Save(j);
         return new(j.Status,changed,skipped,skipped>0?"已恢复可安全恢复的内容；未知修改被保留。":"已恢复本工具管理的内容，保留后续非文字状态。");
     }
-    public string Status()
+    public (string Status,bool CanRestore,DateTime? CreatedUtc,int Entries) Summary()
     {
-        using var guard=Lock();var j=Load();return j?.Status??"unmanaged";
+        using var guard=Lock();var j=Load();
+        bool pending=File.Exists(SafeFiles.Within(stateRoot,"pending-install.json"));
+        return (pending?"prepared":j?.Status??"unmanaged",!pending && j is {Status:"installed" or "conflict"} && j.Entries.Any(e=>!e.Restored),j?.CreatedUtc,j?.Entries.Count??0);
     }
+    public string Status() => Summary().Status;
 }
 
 public static class Operations
@@ -169,7 +196,7 @@ public static class Operations
         if(diagnoseOnly)return new {AppInfo.Version,Package=t.Name,GameVersion=t.Version,Family=t.Family,KnownIdentity=t.Family==AppInfo.Family,Message="身份诊断不代表资源兼容性；安装前仍做完整哈希检查。"};
         WindowsTarget.AssertSupported(t);PayloadStore.EnsurePayload(AppInfo.Payload);var p=Translation.Plan(t.SavedRoot,AppInfo.Payload);
         var tx=new Transactions(t.SavedRoot,AppInfo.State,t.Family);
-        return new {Supported=true,p.Scanned,p.Matched,p.AlreadyChinese,p.Unmatched,PendingFiles=p.Changes.Count,ManagedState=tx.Status(),Message="仅检查文件；不能替代游戏画面验证。"};
+        return new {Supported=true,GameVersion=t.Version,p.Scanned,p.Matched,p.AlreadyChinese,p.Unmatched,PendingFiles=p.Changes.Count,ManagedState=tx.Status(),Message="仅检查文件；不能替代游戏画面验证。"};
     }
     public static OperationResult Install()
     {
@@ -179,8 +206,12 @@ public static class Operations
     public static OperationResult Restore()
     {
         WindowsTarget.AssertClosed();var t=WindowsTarget.Detect();
-        if(t.Family!=AppInfo.Family)throw new InvalidDataException("包族不匹配。");
-        return new Transactions(t.SavedRoot,AppInfo.State,t.Family).Restore(WindowsTarget.AssertClosed);
+        return RestoreTarget(t,AppInfo.State,WindowsTarget.AssertClosed);
+    }
+    public static OperationResult RestoreTarget(Target t,string state,Action closed)
+    {
+        closed();if(t.Family!=AppInfo.Family)throw new InvalidDataException("包族不匹配。");
+        return new Transactions(t.SavedRoot,state,t.Family).Restore(closed);
     }
     public static string Display(object value)=>JsonSerializer.Serialize(value,AppInfo.JsonOptions);
     public static string Log(string command,object value)

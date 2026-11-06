@@ -19,7 +19,7 @@ internal static class Program
         {
             if (args.Length >= 2 && args[0] == "--screenshot")
             {
-                using var form = new MainForm();
+                using var form = new MainForm(capture:true);
                 form.PrepareForCapture(1280, 860);
                 form.SaveShot(args[1], CockpitPage.Overview);
                 return 0;
@@ -63,7 +63,7 @@ internal static class Program
     private static void RenderPages(string dir)
     {
         Directory.CreateDirectory(dir);
-        using var form = new MainForm();
+        using var form = new MainForm(capture:true);
         form.PrepareForCapture(1280, 860);
         foreach (var (page, name) in Pages)
         {
@@ -83,7 +83,7 @@ internal static class Program
         Directory.CreateDirectory(dir);
         var pages = new List<object>();
         var warnings = new List<string>();
-        using var form = new MainForm();
+        using var form = new MainForm(layoutOnly?GuiBackend.LayoutFixture():null,capture:true);
         form.PrepareForCapture(1280, 860);
         foreach (var (page, name) in Pages)
         {
@@ -103,6 +103,12 @@ internal static class Program
         form.SaveShot(tiny, CockpitPage.Overview);
         var tinyWarnings = form.LastWarnings.ToArray();
 
+        var detailViews=new List<object>();
+        foreach(var (page,name) in Pages.Where(p=>p.Page!=CockpitPage.Overview))
+        {
+            string file="窄窗-"+name+".png";form.SaveShot(Path.Combine(dir,file),page);
+            var wa=form.LastWarnings.ToArray();warnings.AddRange(wa);detailViews.Add(new{file,warnings=wa});
+        }
         JsonElement? check = null;
         string? checkError = null;
         if (!layoutOnly)
@@ -125,7 +131,9 @@ internal static class Program
             topmost = new { found = true, before, afterPin, restored, handle = hwnd.ToInt64() };
         }
 
-        bool pass = warnings.Count == 0 && smallWarnings.Length == 0 && tinyWarnings.Length == 0
+        var interactions=JsonSerializer.SerializeToElement(InteractionTests.Run(),AppInfo.JsonOptions);
+        bool interactionPass=interactions.GetProperty("pass").GetBoolean();
+        bool pass = interactionPass && warnings.Count == 0 && smallWarnings.Length == 0 && tinyWarnings.Length == 0
             && (layoutOnly || (check is { } c && c.TryGetProperty("Supported", out var sup) && sup.GetBoolean()))
             && (!topmost.found || (topmost.afterPin && topmost.restored));
 
@@ -135,11 +143,13 @@ internal static class Program
             timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             clientSize = "1280x860",
             pages,
+            detailViews,
             warnings,
             smallView = new { file = Path.GetFileName(small), warnings = smallWarnings },
             tinyView = new { file = Path.GetFileName(tiny), warnings = tinyWarnings },
             check,
             checkError,
+            interactions,
             topmost,
             pass,
         };
@@ -190,10 +200,17 @@ internal sealed class MainForm : Form
     private IntPtr _gameHwnd;
     private DateTime _lastLookup = DateTime.MinValue;
     private bool _busy;
-    private int _ticks;
+    private bool _sizeDraft;
+    private bool _checkPassed;
 
-    public MainForm()
+    private readonly GuiBackend _backend;
+    internal bool IsWorking => _busy;
+    internal CockpitView View => _view;
+    private readonly bool _capture;
+    public MainForm(GuiBackend? backend = null,bool capture = false)
     {
+        _capture=capture;
+        _backend=backend??new GuiBackend();
         Text = "MyWhoosh HD 中文助手 · 竞速座舱";
         AutoScaleMode = AutoScaleMode.None;
         BackColor = Palette.Bg;
@@ -212,14 +229,14 @@ internal sealed class MainForm : Form
         Load += (_, _) => RefreshState();
         FormClosing += (_, _) =>
         {
-            if (WindowState != FormWindowState.Normal) return;
+            if (_backend.TestMode || _capture || WindowState != FormWindowState.Normal) return;
             new UiState { Width = ClientSize.Width, Height = ClientSize.Height }.Save();
         };
 
         _guard.Tick += (_, _) => GuardTopmost();
-        _guard.Start();
-        _refresh.Tick += (_, _) => { _ticks++; if (!_busy && _ticks % 4 == 0) { _view.GameRunning = FindGame(); _view.Invalidate(); } };
-        _refresh.Start();
+        if(!_backend.TestMode && !_capture)_guard.Start();
+        _refresh.Tick += (_, _) => { if(!_busy) RefreshRuntime(); };
+        if(!_backend.TestMode && !_capture)_refresh.Start();
     }
 
     public IReadOnlyList<string> LastWarnings => _view.Warnings;
@@ -247,76 +264,67 @@ internal sealed class MainForm : Form
 
     private static bool FindGame() => NativeWindow.FindGameWindow("MyWhoosh") != IntPtr.Zero;
 
+    internal void RefreshForTest()=>RefreshState();
     private void RefreshState()
     {
         try
         {
-            var t = WindowsTarget.Detect();
-            var w = GameWindow.Inspect(t.SavedRoot, AppInfo.State);
-            if (w.Width > 0) { _view.WinW = w.Width; _view.WinH = w.Height; }
-            _view.Windowed = w.Windowed;
-            _view.Topmost = w.Topmost;
-            _view.BackupAvailable = w.BackupAvailable;
-            _view.PayloadState = PayloadText();
-            _view.BackupWhen = BackupText();
-            _view.Status = StatusText(new Transactions(t.SavedRoot, AppInfo.State, t.Family).Status());
+            var s = _backend.Snapshot();var w=s.Window;
+        if (!_checkPassed || !_view.Supported || _view.GameVersion!=s.Version)_view.HasStats=false;
+            _view.GameVersion=s.Version;_view.Supported=s.Supported;
+            if (!_sizeDraft && w.Width > 0) { _view.WinW = w.Width; _view.WinH = w.Height; }
+            _view.Windowed=w.Windowed;_view.Topmost=w.Topmost;
+            _view.WindowBackupAvailable=w.BackupAvailable;
+            _view.BackupAvailable=s.CanRestore;
+            _view.PayloadState=s.Payload;
+            _view.BackupWhen=s.CreatedUtc is {} utc?$"{utc.ToLocalTime():M月d日 HH:mm} · 首次备份":s.CanRestore?"旧记录 · 时间未知":"";
+            _view.Status=StatusText(s.Journal);
+            _view.Notice=s.Supported?(w.Message.StartsWith("窗口批次")?w.Message:""):"构建未支持，仅可诊断";
         }
         catch (Exception ex)
         {
             _view.Status = "无法读取游戏状态";
+            _view.Supported=false;_view.BackupAvailable=false;_view.HasStats=false;
             if (string.IsNullOrEmpty(_view.Notice)) _view.Notice = ex.Message;
         }
-        _view.GameRunning = FindGame();
+        RefreshRuntime();
+        _view.Invalidate();
+    }
+    private void RefreshRuntime()
+    {
+        if(_backend.TestMode)return;
+        var h=NativeWindow.FindGameWindow("MyWhoosh");_view.GameRunning=h!=IntPtr.Zero;
+        _view.ActualTopmost=h==IntPtr.Zero?null:NativeWindow.IsTopmost(h);
+        var size=NativeWindow.ClientSize(h);_view.ActualSize=size is {} v?$"{v.Width} × {v.Height}":"未启动";
         _view.Invalidate();
     }
 
     private static string StatusText(string status) => status switch
     {
-        "installed" => "已安装中文",
+        "installed" => "有本工具备份",
         "restored" => "已恢复英文",
-        "unmanaged" => "未安装",
+        "unmanaged" => "无本工具记录",
         "conflict" => "有冲突待处理",
         "prepared" => "上次中断",
         "rolled-back" => "已回滚",
         "unchanged" => "无需重复安装",
+        "unknown" => "构建未支持",
         "migrated" => "旧账本已导入",
         _ => status,
     };
-
-    private static string PayloadText()
-    {
-        try { PayloadStore.Validate(AppInfo.Payload); return "内置 · 校验通过"; }
-        catch { return "未释放"; }
-    }
-
-    private static string BackupText()
-    {
-        try
-        {
-            var times = new List<DateTime>();
-            foreach (string name in new[] { "active.json", "window.json" })
-            {
-                string path = System.IO.Path.Combine(AppInfo.State, name);
-                if (File.Exists(path)) times.Add(File.GetLastWriteTime(path));
-            }
-            if (times.Count == 0) return "";
-            var latest = times.Max();
-            return latest.Date == DateTime.Today ? $"今天 {latest:HH:mm} · 修改前" : $"{latest:M月d日 HH:mm} · 修改前";
-        }
-        catch { return ""; }
-    }
 
     private void GuardTopmost()
     {
         try
         {
-            if (!_view.Topmost) { _gameHwnd = IntPtr.Zero; return; }
+            if (!_view.Topmost || _backend.TestMode) { _gameHwnd = IntPtr.Zero; return; }
             if (_gameHwnd == IntPtr.Zero && (DateTime.UtcNow - _lastLookup).TotalSeconds > 4)
             {
                 _lastLookup = DateTime.UtcNow;
                 _gameHwnd = NativeWindow.FindGameWindow("MyWhoosh");
             }
             if (_gameHwnd != IntPtr.Zero && !NativeWindow.SetTopmost(_gameHwnd, true)) _gameHwnd = IntPtr.Zero;
+            RefreshRuntime();
         }
         catch { }
     }
@@ -334,22 +342,27 @@ internal sealed class MainForm : Form
                     _view.Page = (CockpitPage)int.Parse(action[4..]);
                     _view.Invalidate();
                     return;
+                case "help":
+                    if(!_backend.TestMode)MessageBox.Show(this,"装中文：先退出游戏，点检查，再点安装 / 更新。\n新课程：退出游戏后再检查，新增内容可增量更新。\n还显示英文：核对同一账户、游戏构建、课程匹配，再重启。\n小窗：选预设尺寸，应用后重启；拖边能力由游戏决定。\n置顶：保持助手运行；看实际置顶，不只看开关。\n回英文：保留备份，恢复只撤销已记录的汉化。\n\nWorkouts：单次课程；Training Plans：多周计划。\nPower Source：功率来源；Controllable：可控阻力。\nERG：目标功率控制；FTP：训练功率基准。\nSave / Upload：保存 / 上传；Discard：丢弃。\n\n分享问题时只提供脱敏诊断，不上传存档或整个 AppData。", "上手帮助与术语", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
                 case "open-backup": OpenFolder(AppInfo.State); return;
                 case "open-log": OpenFolder(System.IO.Path.Combine(AppInfo.Home, "logs")); return;
                 case "size:1280:720": case "size:1600:900": case "size:1920:1080": case "size:2560:1440":
                 {
                     var parts = action.Split(':');
+                    _sizeDraft=true;
                     _view.WinW = int.Parse(parts[1]);
                     _view.WinH = int.Parse(parts[2]);
                     _view.Invalidate();
                     return;
                 }
                 case "check":
-                    await Execute("check", "检查", () => Operations.Check());
+                    await Execute("check", "检查", _backend.Check);
                     return;
                 case "install":
+                    if(!_view.Supported){_view.Notice="请先检查受支持的游戏构建";_view.Invalidate();return;}
                     if (!Confirm("安装中文界面？", "请先完全退出 MyWhoosh 游戏。\n写入前会备份原始文件，失败会自动回滚，不会修改游戏主资源。")) return;
-                    await Execute("install", "安装", () => Operations.Install());
+                    await Execute("install", "安装", _backend.Install);
                     return;
                 case "apply-window":
                     if (!Confirm("应用窗口设置？", $"将游戏改为窗口模式，尺寸 {_view.WinW} × {_view.WinH}。\n需要先完全退出游戏，改完重新打开生效。")) return;
@@ -387,11 +400,12 @@ internal sealed class MainForm : Form
         try
         {
             var element = await Task.Run(() => JsonSerializer.SerializeToElement(work(), AppInfo.JsonOptions));
-            ApplyResult(key, label, element);            try { Operations.Log(key, element); } catch { }
+            ApplyResult(key, label, element);            try { if(!_backend.TestMode) Operations.Log(key, element); } catch { }
         }
         catch (Exception ex)
         {
-            try { Operations.Log(key + "-error", new { error = ex.Message }); } catch { }
+            _view.HasStats=false;_checkPassed=false;
+            try { if(!_backend.TestMode) Operations.Log(key + "-error", new { error = ex.Message }); } catch { }
             AddLog(label + "失败：" + ex.Message);
             Error(label + "失败", ex);
         }
@@ -417,10 +431,16 @@ internal sealed class MainForm : Form
                 _view.HasStats = true;
                 _view.LastCheck = DateTime.Now.ToString("HH:mm");
                 _view.Status = "已检查 · 待写入 " + _view.Pending;
+                _checkPassed=el.TryGetProperty("Supported",out var sup) && sup.GetBoolean();_view.Supported=_checkPassed;
+                if(el.TryGetProperty("GameVersion",out var gv))_view.GameVersion=gv.GetString()??"未检测";
+                _view.Page=CockpitPage.Overview;
+                _view.Notice=_view.Pending>0?"检查完成，点安装 / 更新中文":"检查完成，无需重复安装";
                 AddLog($"检查：扫描 {_view.Scanned:N0} · 匹配 {_view.Matched:N0} · 待写入 {_view.Pending:N0}");
                 break;
             case "install":
             case "restore":
+                _view.HasStats=false;
+                goto case "migrate";
             case "migrate":
             case "payload-import":
                 if (el.TryGetProperty("Status", out var status))
@@ -434,6 +454,7 @@ internal sealed class MainForm : Form
             case "window":
             case "window-reset":
             case "topmost":
+                _sizeDraft=false;
                 _view.WinW = el.GetProperty("Width").GetInt32();
                 _view.WinH = el.GetProperty("Height").GetInt32();
                 _view.Topmost = el.GetProperty("Topmost").GetBoolean();
@@ -472,11 +493,11 @@ internal sealed class MainForm : Form
     }
 
     private bool Confirm(string title, string text) =>
-        MessageBox.Show(this, text, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
+        _backend.TestMode || MessageBox.Show(this, text, title, MessageBoxButtons.OKCancel, MessageBoxIcon.Question) == DialogResult.OK;
 
     private void Error(string title, Exception ex)
     {
-        if (IsHandleCreated && Visible) MessageBox.Show(this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        if (!_backend.TestMode && IsHandleCreated && Visible) MessageBox.Show(this, ex.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 
     private void OpenFolder(string path)

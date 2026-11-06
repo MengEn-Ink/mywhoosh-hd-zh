@@ -61,8 +61,7 @@ public static class NativeWindow
         {
             using (p)
             {
-                if (!p.ProcessName.StartsWith(processPrefix, StringComparison.OrdinalIgnoreCase)) continue;
-                if (p.ProcessName.Equals("MyWhooshZH", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!p.ProcessName.StartsWith(processPrefix, StringComparison.OrdinalIgnoreCase) || !WindowsTarget.IsGameProcess(p.ProcessName)) continue;
                 var h = FindMainWindow(p.Id);
                 if (h != IntPtr.Zero) return h;
             }
@@ -91,6 +90,13 @@ public static class NativeWindow
         return (style.ToInt64() & WS_EX_TOPMOST) != 0;
     }
 
+    [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left,Top,Right,Bottom; }
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hWnd,out Rect rect);
+    public static (int Width,int Height)? ClientSize(IntPtr hWnd)
+    {
+        if(hWnd==IntPtr.Zero || !OperatingSystem.IsWindows() || !GetClientRect(hWnd,out var r))return null;
+        return (r.Right-r.Left,r.Bottom-r.Top);
+    }
     /// <summary>获取窗口标题。</summary>
     public static string GetTitle(IntPtr hWnd)
     {

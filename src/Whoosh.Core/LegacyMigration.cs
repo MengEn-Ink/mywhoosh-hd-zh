@@ -10,10 +10,14 @@ public static class LegacyMigration
     {
         closed();PayloadStore.EnsurePayload(payload);SafeFiles.NoLinks(legacy);Directory.CreateDirectory(state);
         using var guard=new FileStream(Path.Combine(state,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
-        var courses=Translation.Parse(SafeFiles.ReadBounded(Path.Combine(payload,"courses.json"))).AsArray();
+        var courses=Translation.CourseRows(payload);
         var known=courses.Where(n=>n!=null).ToDictionary(n=>(n!["Name"]!.GetValue<string>(),n["Description"]!.GetValue<string>()),n=>(n!["ChineseName"]!.GetValue<string>(),n["ChineseDescription"]!.GetValue<string>()));
-        string active=Path.Combine(state,"active.json");Journal j=File.Exists(active)?JsonSerializer.Deserialize<Journal>(SafeFiles.ReadBounded(active),AppInfo.JsonOptions)!:new(){Id=Guid.NewGuid().ToString("N"),Family=AppInfo.Family,SavedRoot=Path.GetFullPath(saved)};
+        string active=Path.Combine(state,"active.json");Journal j=File.Exists(active)?JsonSerializer.Deserialize<Journal>(SafeFiles.ReadBounded(active),AppInfo.JsonOptions)!:new(){Id=Guid.NewGuid().ToString("N"),Family=AppInfo.Family,SavedRoot=Path.GetFullPath(saved),Status="unmanaged"};
         if(j.Family!=AppInfo.Family||!Path.GetFullPath(j.SavedRoot).Equals(Path.GetFullPath(saved),StringComparison.OrdinalIgnoreCase)||!Guid.TryParseExact(j.Id,"N",out _)||j.Status is "prepared" or "conflict")throw new InvalidDataException("当前账本不适合迁移，先处理冲突。");
+        if(File.Exists(SafeFiles.Within(state,"pending-install.json")))throw new IOException("先恢复中断增量批次再迁移。");
+        var existingTx=new Transactions(saved,state,AppInfo.Family);
+        if(File.Exists(active))existingTx.ValidateBytes(SafeFiles.ReadBounded(active));
+        if(j.CreatedUtc==null && !File.Exists(active))j.CreatedUtc=DateTime.UtcNow;
         var existing=j.Entries.Where(e=>!e.Restored).Select(e=>e.Relative).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var legacyRecords=Translation.Parse(SafeFiles.ReadBounded(Path.Combine(legacy,"Courses","ledger.json"))).AsArray();
         var backupIndex=new Dictionary<(string,string),byte[]>();
@@ -39,7 +43,8 @@ public static class LegacyMigration
             var texts=new List<TextChange>{new("/Name",name,newName),new("/"+key,desc,newDesc)};
             // Baseline is the current file with only translated fields reverted, preserving user's newer state.
             var baseline=node.DeepClone();Translation.Set(baseline,"/Name",name);Translation.Set(baseline,"/"+key,desc);
-            var before=Translation.Serialize(baseline,current);string backup=j.Id+"/legacy-"+(imported++)+".bin";
+            var before=Translation.Serialize(baseline,current);string backup=j.Id+"/legacy-"+Guid.NewGuid().ToString("N")+".bin";imported++;
+            j.Entries.RemoveAll(e=>e.Restored && e.Relative.Equals(rel,StringComparison.OrdinalIgnoreCase));
             SafeFiles.AtomicWrite(SafeFiles.Within(state,backup),before);
             j.Entries.Add(new(){Relative=rel,BeforeHash=SafeFiles.Hash(before),AfterHash=SafeFiles.Hash(current),Backup=backup,Texts=texts});existing.Add(rel);
         }
@@ -55,7 +60,8 @@ public static class LegacyMigration
             var currentNode=Translation.Parse(raw);
             if(JsonNode.DeepEquals(currentNode,patched))
             {
-                string backup=j.Id+"/legacy-category.bin";SafeFiles.AtomicWrite(SafeFiles.Within(state,backup),original);
+                string backup=j.Id+"/legacy-category-"+Guid.NewGuid().ToString("N")+".bin";SafeFiles.AtomicWrite(SafeFiles.Within(state,backup),original);
+                j.Entries.RemoveAll(e=>e.Restored && e.Relative==catRel);
                 j.Entries.Add(new(){Relative=catRel,BeforeHash=SafeFiles.Hash(original),AfterHash=SafeFiles.Hash(raw),Backup=backup,Texts=texts});imported++;
             }
             else if(!JsonNode.DeepEquals(currentNode,originalNode))skipped++;
@@ -64,10 +70,11 @@ public static class LegacyMigration
         if(File.Exists(pak)&&!existing.Contains(pakRel))
         {
             if(SafeFiles.HashFile(pak)!=AppInfo.PakHash)throw new InvalidDataException("界面PAK未知，不纳入迁移。");
+            j.Entries.RemoveAll(e=>e.Restored && e.Relative==pakRel);
             j.Entries.Add(new(){Relative=pakRel,BeforeHash=null,AfterHash=AppInfo.PakHash,Backup=null,Texts=[]});imported++;
         }
         closed();if(File.Exists(active))SafeFiles.AtomicWrite(SafeFiles.Within(state,j.Id+"/before-legacy-import-"+Guid.NewGuid().ToString("N")+".json"),SafeFiles.ReadBounded(active));
-        j.Status="installed";SafeFiles.AtomicWrite(active,JsonSerializer.SerializeToUtf8Bytes(j,AppInfo.JsonOptions));
+        j.Status="installed";existingTx.ValidateBytes(JsonSerializer.SerializeToUtf8Bytes(j,AppInfo.JsonOptions));SafeFiles.AtomicWrite(active,JsonSerializer.SerializeToUtf8Bytes(j,AppInfo.JsonOptions));
         return new("migrated",imported,skipped,"旧恢复记录已核验并导入；只写本工具备份账本，不改游戏。未知修改保留，不宣称可全部恢复。");
     }
     public static OperationResult Current()

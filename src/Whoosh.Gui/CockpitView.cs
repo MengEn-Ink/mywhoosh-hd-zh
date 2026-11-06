@@ -33,6 +33,16 @@ internal sealed class CockpitView : Control
     internal string PayloadState { get; set; } = "未检查";
     internal string LastCheck { get; set; } = "—";
     internal bool GameRunning { get; set; }
+    internal string GameVersion { get; set; } = "未检测";
+    internal bool Supported { get; set; }
+    internal bool? ActualTopmost { get; set; }
+    internal string ActualSize { get; set; } = "未启动";
+    internal bool WindowBackupAvailable { get; set; }
+    internal IReadOnlyList<string> RenderedText => _texts;
+    internal IReadOnlyList<(RectangleF Rect,string Action)> Hits => _hits;
+    private readonly List<string> _texts=[];
+    internal (string Label,string Action) PrimaryChinese => HasStats && Pending>0 && Supported ? ("安装 / 更新中文","install") : (HasStats?"重新检查中文":"检查中文状态","check");
+    internal string TopmostText => ActualTopmost switch {true=>"已置顶",false=>Topmost?"守护待重试":"未置顶",_=>Topmost?"等待游戏启动":"未启动"};
     internal List<string> Log { get; } = [];
     internal List<string> Warnings { get; } = [];
     internal event Action<string>? Act;
@@ -68,6 +78,7 @@ internal sealed class CockpitView : Control
     {
         var g = e.Graphics;
         Warnings.Clear();
+        _texts.Clear();
         _hits.Clear();
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
@@ -159,8 +170,8 @@ internal sealed class CockpitView : Control
         {
             float badgeW = P(92);
             float cells = (avail - badgeW - P(18)) / 3f;
-            Telemetry(g, tx, y + P(8), cells, "游戏版本", "6.2.3.0");
-            Telemetry(g, tx + cells, y + P(8), cells, "中文课程", HasStats && Matched > 0 ? Matched.ToString("N0") + " 条" : "—");
+            Telemetry(g, tx, y + P(8), cells, "实际版本", GameVersion);
+            Telemetry(g, tx + cells, y + P(8), cells, "已中文课程", HasStats ? Already.ToString("N0") + " 条" : "—");
             Telemetry(g, tx + cells * 2, y + P(8), cells, "备份状态", BackupAvailable ? "已保存" : "未创建");
             if (cells > P(90))
             {
@@ -220,10 +231,13 @@ internal sealed class CockpitView : Control
         float y = h - P(48);
         using (var accent = new Pen(Palette.Accent, P(2))) g.DrawLine(accent, RailW + P(24), y, w - P(24), y);
         Txt(g, "安全提示：所有改动都在本机完成，修改前自动备份。", RailW + P(24), y + P(10), P(11.5), Palette.Muted,
-            false, w - RailW - P(220));
+            false, w - RailW - P(310));
         float lx = w - P(24);
         float lw = TW(g, "查看操作记录 →", P(11.5), false);
         Txt(g, "查看操作记录 →", lx - lw, y + P(9), P(11.5), Palette.Accent, false);
+        float helpW=TW(g,"上手帮助",P(11),false);
+        Txt(g,"上手帮助",lx-lw-P(20)-helpW,y+P(9),P(11),Palette.Accent,false);
+        Hit(lx-lw-P(26)-helpW,y+P(4),helpW+P(12),P(22),"help");
         Hit(lx - lw - P(6), y + P(4), lw + P(12), P(22), "open-log");
     }
 
@@ -259,7 +273,7 @@ internal sealed class CockpitView : Control
         float dia = Math.Clamp(Math.Min(c.Width * 0.66f, regionH * 0.56f), P(84), P(206));
         float blockH = dia + P(14) + P(20) + P(26) + P(42);
         float ringY = c.Y + Math.Max(P(2), (regionH - blockH) / 2);
-        float progress = HasStats && Scanned > 0 ? Math.Clamp(Matched / (float)Scanned, 0f, 1f) : 0f;
+        float progress = HasStats && Scanned > 0 ? Math.Clamp(Already / (float)Scanned, 0f, 1f) : 0f;
         Ring(g, c.X + c.Width / 2, ringY, dia, progress);
 
         float capY = ringY + dia + P(14);
@@ -271,7 +285,7 @@ internal sealed class CockpitView : Control
         if (bodyY + bodyPx * 3.2f < btnY - P(10))
             Txt(g, "课程名称与界面文字都变中文。", c.X, bodyY, bodyPx, Palette.Muted, false, c.Width, P(44));
 
-        Button(g, new RectangleF(c.X, btnY, c.Width, btnH), HasStats ? "重新检查中文" : "检查并安装中文", true, "check");
+        Button(g, new RectangleF(c.X, btnY, c.Width, btnH), PrimaryChinese.Label, true, PrimaryChinese.Action);
     }
 
     private void ColumnWindow(Graphics g, RectangleF r)
@@ -326,7 +340,7 @@ internal sealed class CockpitView : Control
         Txt(g, "最近的备份", c.X + P(12), snapY + P(9), P(10), Palette.Dim, false, c.Width - P(24));
         Txt(g, string.IsNullOrEmpty(BackupWhen) ? "还没有备份" : BackupWhen, c.X + P(12), snapY + P(24), P(12.5),
             Palette.Ink, true, c.Width - P(24));
-        Txt(g, "可恢复：界面 / 课程 / 窗口设置", c.X + P(12), snapY + P(44), P(10), Palette.Dim, false, c.Width - P(24));
+        Txt(g, BackupAvailable ? "可恢复：界面 / 课程" : "本工具没有汉化回退记录", c.X + P(12), snapY + P(44), P(10), Palette.Dim, false, c.Width - P(24));
 
         float noteY = snapY + snapH + P(10);
         Txt(g, "恢复后重新打开游戏，即回到英文界面。", c.X, noteY, P(11), Palette.Muted, false, c.Width, P(16));
@@ -382,7 +396,7 @@ internal sealed class CockpitView : Control
 
         float split = MathF.Round(c.Width * 0.4f);
         Button(g, new RectangleF(c.X, btnY, split, btnH), "重新检查", false, "check");
-        Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), "安装中文", true, "install");
+        Button(g, new RectangleF(c.X + split + P(10), btnY, c.Width - split - P(10), btnH), Supported?"安装 / 更新中文":"先检查游戏构建", true, Supported?"install":"check");
 
         float lw = TW(g, "导入语言资源包 →", P(11), false);
         Txt(g, "导入语言资源包 →", c.X, btnY - P(24), P(11), Palette.Accent, false);
@@ -411,10 +425,10 @@ internal sealed class CockpitView : Control
         }
 
         float y = c.Y + P(48);
-        y = Row(g, c.X, y, c.Width, "当前窗口尺寸", WinW + " × " + WinH);
-        y = Row(g, c.X, y, c.Width, "启动模式", Windowed ? "窗口（默认不全屏）" : "全屏 / 无边框");
+        y = Row(g, c.X, y, c.Width, "预设尺寸（待应用）", WinW + " × " + WinH);
+        y = Row(g, c.X, y, c.Width, "实际窗口尺寸", ActualSize);
         y = Row(g, c.X, y, c.Width, "拖动边缘缩放", "已请求（游戏决定）");
-        y = Row(g, c.X, y, c.Width, "最大化 / 最小化", "已开启");
+        y = Row(g, c.X, y, c.Width, "最大化 / 最小化", "由游戏支持");
 
         float toggleY = y + P(10);
         Txt(g, "始终置顶", c.X, toggleY, P(13.5), Palette.Ink, true, c.Width - P(64));
@@ -423,7 +437,7 @@ internal sealed class CockpitView : Control
 
         float rowY = toggleY + P(50);
         rowY = Row(g, c.X, rowY, c.Width, "全屏切换（游戏内）", "Alt + Enter");
-        rowY = Row(g, c.X, rowY, c.Width, "窗口尺寸记忆", "下次启动沿用");
+        rowY = Row(g, c.X, rowY, c.Width, "实际置顶", TopmostText);
         rowY = Row(g, c.X, rowY, c.Width, "置顶守护", Topmost ? "每 2.5 秒确认" : "未开启");
 
         float noteY = btnY - P(24);
@@ -463,12 +477,12 @@ internal sealed class CockpitView : Control
         Txt(g, "最近的备份", c.X + P(12), y + P(9), P(10), Palette.Dim, false, c.Width - P(24));
         Txt(g, string.IsNullOrEmpty(BackupWhen) ? "还没有备份" : BackupWhen, c.X + P(12), y + P(24), P(13),
             Palette.Ink, true, c.Width - P(24));
-        Txt(g, "可恢复：界面 / 课程 / 窗口设置", c.X + P(12), y + P(44), P(10.5), Palette.Dim, false, c.Width - P(24));
+        Txt(g, BackupAvailable ? "可恢复：界面 / 课程" : "本工具没有汉化回退记录", c.X + P(12), y + P(44), P(10.5), Palette.Dim, false, c.Width - P(24));
         Txt(g, BackupAvailable ? "备份完整，可以安全恢复。" : "没有可恢复的备份记录。", c.X + P(12), y + P(58), P(10.5),
             BackupAvailable ? Palette.Ok : Palette.Warn, false, c.Width - P(24));
 
         float rowY = y + snapH + P(18);
-        rowY = Row(g, c.X, rowY, c.Width, "备份覆盖", "界面 · 课程 · 窗口");
+        rowY = Row(g, c.X, rowY, c.Width, "备份覆盖", BackupAvailable ? "已记录的汉化文件" : "无汉化备份");
         rowY = Row(g, c.X, rowY, c.Width, "恢复方式", "按记录逐文件还原");
         rowY = Row(g, c.X, rowY, c.Width, "收藏与成绩", "始终保留");
 
@@ -489,8 +503,8 @@ internal sealed class CockpitView : Control
         float y = c.Y + P(2);
         y = Row(g, c.X, y, c.Width, "管理器版本", "v" + AppInfo.Version);
         y = Row(g, c.X, y, c.Width, "游戏进程", GameRunning ? "运行中" : "未运行");
-        y = Row(g, c.X, y, c.Width, "汉化状态", Status);
-        y = Row(g, c.X, y, c.Width, "置顶守护", Topmost ? "每 2.5 秒确认" : "未开启");
+        y = Row(g, c.X, y, c.Width, "恢复记录", Status);
+        y = Row(g, c.X, y, c.Width, "实际置顶", TopmostText);
         y = Row(g, c.X, y, c.Width, "内置资源包", PayloadState);
         y = Row(g, c.X, y, c.Width, "数据目录", "本机 AppData");
         if (!string.IsNullOrEmpty(Notice))
@@ -666,8 +680,9 @@ internal sealed class CockpitView : Control
         float vw = TW(g, value, vp, true);
         Txt(g, label, x, y + P(3), lp, Palette.Muted, false, w - vw - P(10));
         Txt(g, value, x + w - vw, y, vp, value.Length > 14 ? Palette.Muted : Palette.Ink, true, w);
-        using (var sep = new Pen(Palette.Line)) g.DrawLine(sep, x, y + P(24), x + w, y + P(24));
-        return y + P(29);
+        float rowH=ClientSize.Height<P(780)?P(25):P(29);
+        using (var sep = new Pen(Palette.Line)) g.DrawLine(sep, x, y + rowH-P(5), x + w, y + rowH-P(5));
+        return y + rowH;
     }
 
     // ---------------------------------------------------------------- 文本与几何
@@ -676,6 +691,7 @@ internal sealed class CockpitView : Control
         float maxW = 0, float maxH = 0, StringAlignment align = StringAlignment.Near)
     {
         if (string.IsNullOrEmpty(text)) return;
+        _texts.Add(text);
         using var font = Palette.F(px, bold);
         using var brush = new SolidBrush(color);
         using var sf = new StringFormat(StringFormat.GenericTypographic)
@@ -698,6 +714,7 @@ internal sealed class CockpitView : Control
 
     private void TxtCenter(Graphics g, string text, RectangleF box, float px, Color color, bool bold)
     {
+        _texts.Add(text);
         using var font = Palette.F(px, bold);
         using var brush = new SolidBrush(color);
         using var sf = new StringFormat(StringFormat.GenericTypographic)
@@ -712,6 +729,7 @@ internal sealed class CockpitView : Control
 
     private float TW(Graphics g, string text, float px, bool bold)
     {
+        _texts.Add(text);
         using var font = Palette.F(px, bold);
         return g.MeasureString(text, font, int.MaxValue, StringFormat.GenericTypographic).Width;
     }
@@ -780,6 +798,14 @@ internal sealed class CockpitView : Control
         if (_hover != null) { _hover = null; Cursor = Cursors.Default; Invalidate(); }
     }
 
+    internal bool ClickActionForTest(string action)
+    {
+        var hits=_hits.Where(h=>h.Action==action).ToArray();
+        if(hits.Length==0)return false;
+        var r=hits[0].Rect;
+        OnMouseUp(new MouseEventArgs(MouseButtons.Left,1,(int)(r.X+r.Width/2),(int)(r.Y+r.Height/2),0));
+        return true;
+    }
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);

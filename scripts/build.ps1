@@ -32,7 +32,7 @@ $layoutReport=Join-Path $layoutDir 'ui-selftest.json'
 if(-not(Test-Path -LiteralPath $layoutReport -PathType Leaf)){throw 'GUI report missing'}
 $layout=Get-Content -LiteralPath $layoutReport -Raw -Encoding UTF8 | ConvertFrom-Json
 if(-not $layout.pass -or $layout.mode -ne 'layout-only' -or @($layout.pages).Count -ne 4 -or @($layout.warnings).Count -ne 0 -or @($layout.smallView.warnings).Count -ne 0 -or @($layout.tinyView.warnings).Count -ne 0){throw 'GUI layout verification failed'}
-if(@(Get-ChildItem -LiteralPath $layoutDir -Filter '*.png' -File).Count -ne 6){throw 'GUI screenshots incomplete'}
+if(@(Get-ChildItem -LiteralPath $layoutDir -Filter '*.png' -File).Count -lt 9){throw 'GUI screenshots incomplete'}
 Copy-Item -LiteralPath $layoutReport -Destination (Join-Path $out 'gui-layout.json')
 $hashes=Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName | ForEach-Object {((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())+'  '+$_.FullName.Substring($bundle.Length+1).Replace('\','/')}
 [IO.File]::WriteAllLines((Join-Path $bundle 'SHA256SUMS.txt'),$hashes,(New-Object Text.UTF8Encoding $false))

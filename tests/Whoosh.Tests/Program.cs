@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Whoosh.Core;
 
+if(args.Length>0 && args[0]=="--crash-child")return CrashHarness.Child(args);
 int passed=0;var failed=new List<string>();
 void Test(string name,Action action){try{action();passed++;Console.WriteLine("PASS "+name);}catch(Exception e){failed.Add(name+": "+e.Message);Console.Error.WriteLine("FAIL "+name+": "+e);}}
 void Assert(bool ok,string message="assertion failed"){if(!ok)throw new Exception(message);}
@@ -28,20 +29,20 @@ Test("category translation exact",()=>{var n=JsonNode.Parse("{\"x\":[\"Beginner\
 Test("install and exact restore",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");Assert(tx.Apply(Plan,()=>{}).Changed==1,"changed count");Assert(File.ReadAllBytes(f.file).SequenceEqual(After()),"installed bytes");var restored=tx.Restore(()=>{});Assert(restored.Status=="restored","restore status: "+restored.Status);Assert(File.ReadAllBytes(f.file).SequenceEqual(Before()),"restored bytes: "+Encoding.UTF8.GetString(File.ReadAllBytes(f.file)));});
 Test("restore preserves Favorite and power",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});var n=Translation.Parse(File.ReadAllBytes(f.file));n["Favorite"]=true;SafeFiles.AtomicWrite(f.file,Encoding.UTF8.GetBytes(n.ToJsonString()));tx.Restore(()=>{});n=Translation.Parse(File.ReadAllBytes(f.file));Assert(n["Favorite"]!.GetValue<bool>()&&n["Power"]!.GetValue<int>()==210&&n["Name"]!.GetValue<string>()=="Tempo");});
 Test("unknown text edit preserved",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});var n=Translation.Parse(File.ReadAllBytes(f.file));n["Name"]="my own";SafeFiles.AtomicWrite(f.file,Encoding.UTF8.GetBytes(n.ToJsonString()));Assert(tx.Restore(()=>{}).Skipped==1);Assert(Translation.Parse(File.ReadAllBytes(f.file))["Name"]!.GetValue<string>()=="my own");});
-Test("failure after write rolls back",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");Reject(()=>tx.Apply(Plan,()=>{},_=>throw new IOException("injected")));Assert(File.ReadAllBytes(f.file).SequenceEqual(Before()));Assert(tx.Status()=="rolled-back");});
+Test("failure after write rolls back",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");Reject(()=>tx.Apply(Plan,()=>{},_=>throw new IOException("injected")));Assert(File.ReadAllBytes(f.file).SequenceEqual(Before()));Assert(tx.Status()=="unmanaged");Assert(!File.Exists(Path.Combine(f.state,"pending-install.json")));});
 Test("external change prevents install",()=>{var f=Fixture();SafeFiles.AtomicWrite(f.file,[1,2]);Reject(()=>new Transactions(f.root,f.state,"test").Apply(Plan,()=>{}));Assert(File.ReadAllBytes(f.file).SequenceEqual(new byte[]{1,2}));});
 Test("closed guard prevents writes",()=>{var f=Fixture();Reject(()=>new Transactions(f.root,f.state,"test").Apply(Plan,()=>throw new IOException("running")));Assert(File.ReadAllBytes(f.file).SequenceEqual(Before()));});
 Test("repeat install is no-op",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});Assert(tx.Apply(()=>new([],1,1,1,0),()=>{}).Status=="unchanged");});
 Test("repeat restore is no-op",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});tx.Restore(()=>{});Assert(tx.Restore(()=>{}).Changed==0);});
 Test("foreign journal rejected",()=>{var f=Fixture();new Transactions(f.root,f.state,"test").Apply(Plan,()=>{});Reject(()=>new Transactions(f.root,f.state,"other").Restore(()=>{}));});
-Test("tampered backup rejected",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});var backup=Directory.EnumerateFiles(f.state,"*.bin",SearchOption.AllDirectories).Single();File.WriteAllText(backup,"tampered");Reject(()=>tx.Restore(()=>{}));Assert(File.ReadAllBytes(f.file).SequenceEqual(After()));});
+Test("tampered backup rejected",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});var backup=Directory.EnumerateFiles(f.state,"original-*.bin",SearchOption.AllDirectories).Single();File.WriteAllText(backup,"tampered");Reject(()=>tx.Restore(()=>{}));Assert(File.ReadAllBytes(f.file).SequenceEqual(After()));});
 Test("tampered journal path rejected",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});string active=Path.Combine(f.state,"active.json");var n=JsonNode.Parse(File.ReadAllText(active))!;n["Entries"]![0]!["Relative"]="../outside";File.WriteAllText(active,n.ToJsonString());Reject(()=>tx.Restore(()=>{}));});
 Test("unmanaged restore does not delete",()=>{var f=Fixture();Assert(new Transactions(f.root,f.state,"test").Restore(()=>{}).Status=="unmanaged");Assert(File.Exists(f.file));});
 Test("operation file lock excludes concurrent",()=>{var f=Fixture();using var l=new FileStream(Path.Combine(f.state,"operation.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);Reject(()=>new Transactions(f.root,f.state,"test").Apply(Plan,()=>{}));});
 Test("ZIP traversal rejected",()=>{string dir=Case(),zip=Path.Combine(dir,"bad.zip");using(var z=ZipFile.Open(zip,ZipArchiveMode.Create)){using var s=new StreamWriter(z.CreateEntry("../escape").Open());s.Write("x");}Reject(()=>PayloadStore.ImportZip(zip,Path.Combine(dir,"out")));Assert(!File.Exists(Path.Combine(dir,"escape")));});
 Test("ZIP missing payload rejected",()=>{string dir=Case(),zip=Path.Combine(dir,"bad.zip");using(var z=ZipFile.Open(zip,ZipArchiveMode.Create)){using var s=new StreamWriter(z.CreateEntry("readme.txt").Open());s.Write("x");}Reject(()=>PayloadStore.ImportZip(zip,Path.Combine(dir,"out")));});
 Test("missing payload fails closed",()=>Reject(()=>PayloadStore.Validate(Case())));
-Test("embedded payload extracts and validates",()=>{string folder=Case();Assert(PayloadStore.EnsurePayload(folder));PayloadStore.Validate(folder);Assert(Directory.GetFiles(folder).Length==3);});
+Test("embedded payload extracts and validates",()=>{string folder=Case();Assert(PayloadStore.EnsurePayload(folder));PayloadStore.Validate(folder);Assert(Directory.GetFiles(folder).Length==4);});
 Test("embedded payload valid cache is no-op",()=>{string folder=Case();PayloadStore.EnsurePayload(folder);Assert(!PayloadStore.EnsurePayload(folder));});
 Test("embedded payload repairs corrupt cache",()=>{string folder=Case();PayloadStore.EnsurePayload(folder);File.WriteAllText(Path.Combine(folder,"courses.json"),"corrupt");Assert(PayloadStore.EnsurePayload(folder));PayloadStore.Validate(folder);});
 Test("interrupted prepared transaction recovers",()=>{var f=Fixture();var tx=new Transactions(f.root,f.state,"test");tx.Apply(Plan,()=>{});string active=Path.Combine(f.state,"active.json");var n=JsonNode.Parse(File.ReadAllText(active))!;n["Status"]="prepared";File.WriteAllText(active,n.ToJsonString());Reject(()=>tx.Apply(Plan,()=>{}));Assert(File.ReadAllBytes(f.file).SequenceEqual(Before()));Assert(tx.Status()=="rolled-back");});
@@ -61,6 +62,8 @@ Test("window topmost cleared after restore",()=>{string root=Case(),state=Case()
 Test("native window api safe on non-windows or no game",()=>{Assert(NativeWindow.FindGameWindow("MyWhooshNonexistent_xyz")==IntPtr.Zero);Assert(!NativeWindow.SetTopmost(IntPtr.Zero,true));Assert(NativeWindow.GetTitle(IntPtr.Zero)=="");Assert(!NativeWindow.IsTopmost(IntPtr.Zero));});
 Test("window fullscreen mode parameter",()=>{string root=Case(),state=Case();string ini=SafeFiles.Within(root,"Config/Windows/GameUserSettings.ini");SafeFiles.AtomicWrite(ini,Encoding.UTF8.GetBytes("[/Script/Engine.GameUserSettings]\r\nFullscreenMode=0\r\n"));GameWindow.Apply(root,state,1280,720,()=>{},false,0);var w0=GameWindow.Inspect(root,state);Assert(!w0.Windowed,"fullscreen mode 0 should not be windowed");GameWindow.Apply(root,state,1280,720,()=>{},false,1);Assert(!GameWindow.Inspect(root,state).Windowed,"borderless mode 1 not flagged as windowed");GameWindow.Apply(root,state,1280,720,()=>{},false,2);Assert(GameWindow.Inspect(root,state).Windowed,"windowed mode 2");});
 Test("window invalid mode rejected",()=>{string root=Case(),state=Case();string ini=SafeFiles.Within(root,"Config/Windows/GameUserSettings.ini");SafeFiles.AtomicWrite(ini,Encoding.UTF8.GetBytes("[/Script/Engine.GameUserSettings]\r\nFullscreenMode=0\r\n"));Reject(()=>GameWindow.Apply(root,state,1280,720,()=>{},false,3));});
+CrashHarness.Run(Test,Case,(ok,message)=>Assert(ok,message));
+RegressionCases.Run(Test,Case,(ok,message)=>Assert(ok,message),Reject);
 if(args.Length==3&&args[0]=="--integration")
 {
     Test("full isolated cache install-check-restore",()=>
@@ -72,15 +75,26 @@ if(args.Length==3&&args[0]=="--integration")
             var target=SafeFiles.Within(root,entry.FullName);using var input=entry.Open();using var memory=new MemoryStream();input.CopyTo(memory);SafeFiles.AtomicWrite(target,memory.ToArray());
         }
         PayloadStore.Validate(args[2]);
+        // Convert a COPY of the snapshot to a controlled English baseline; never touch source cache.
+        var reverse=Translation.CourseRows(args[2]).GroupBy(n=>(n["ChineseName"]!.GetValue<string>(),n["ChineseDescription"]!.GetValue<string>())).ToDictionary(g=>g.Key,g=>g.First());
+        int resetToEnglish=0;
+        foreach(var file in Directory.EnumerateFiles(root,"*.json",SearchOption.AllDirectories))
+        {
+            byte[] raw=SafeFiles.ReadBounded(file);var n=Translation.Parse(raw);if(n is not JsonObject obj)continue;
+            string? dk=obj.Select(k=>k.Key).FirstOrDefault(k=>k.Equals("Description",StringComparison.OrdinalIgnoreCase));
+            if(dk==null||obj["Name"]==null)continue;
+            if(reverse.TryGetValue((obj["Name"]!.GetValue<string>(),obj[dk]!.GetValue<string>()),out var row))
+            {obj["Name"]=row["Name"]!.GetValue<string>();obj[dk]=row["Description"]!.GetValue<string>();SafeFiles.AtomicWrite(file,Translation.Serialize(obj,raw));resetToEnglish++;}
+        }
         var original=Directory.EnumerateFiles(root,"*",SearchOption.AllDirectories).ToDictionary(p=>Path.GetRelativePath(root,p),SafeFiles.HashFile);
-        var plan=Translation.Plan(root,args[2]);Assert(plan.Scanned==2063,"integration source size");Assert(plan.Matched>=2056,"match regression");
+        var plan=Translation.Plan(root,args[2]);Assert(plan.Scanned==2063,"integration source size");Assert(plan.Matched==2063&&plan.Unmatched==0&&plan.AlreadyChinese==0,"complete English baseline coverage");
         var tx=new Transactions(root,state,"integration");var installed=tx.Apply(()=>plan,()=>{});
         Assert(installed.Changed==plan.Changes.Count,"real changed files");
         var check=Translation.Plan(root,args[2]);Assert(check.Changes.Count==0,"idempotent real cache");
         var restored=tx.Restore(()=>{});Assert(restored.Status=="restored","full restore status");
         foreach(var kv in original)Assert(SafeFiles.HashFile(Path.Combine(root,kv.Key))==kv.Value,"restore digest "+kv.Key);
         Assert(!File.Exists(Path.Combine(root,"Paks","MyWhooshChinese_P.pak")),"created pak removed");
-        Console.WriteLine("INTEGRATION "+JsonSerializer.Serialize(new{plan.Scanned,plan.Matched,plan.Unmatched,InstalledFiles=installed.Changed,RestoredFiles=restored.Changed,AllOriginalHashesRestored=true}));
+        Console.WriteLine("INTEGRATION "+JsonSerializer.Serialize(new{plan.Scanned,plan.Matched,plan.Unmatched,ResetToEnglish=resetToEnglish,InstalledFiles=installed.Changed,RestoredFiles=restored.Changed,AllOriginalHashesRestored=true}));
     });
 }
 Console.WriteLine(JsonSerializer.Serialize(new{passed,failed=failed.Count,failures=failed},AppInfo.JsonOptions));
