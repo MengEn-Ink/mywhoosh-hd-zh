@@ -63,7 +63,7 @@ $p=Start-Process -FilePath $uninstall -ArgumentList @('/VERYSILENT','/SUPPRESSMS
 if($p.ExitCode -ne 0){throw 'Uninstall failed'}
 if(Test-Path -LiteralPath $key){throw 'Uninstall registration remains'}
 if(Test-Path -LiteralPath (Join-Path $app 'MyWhooshZH.exe')){throw 'App executable remains'}
-if(@(Get-ChildItem -LiteralPath $shortcuts -File -Filter '*.lnk').Count -ne 0){throw 'Shortcuts remain'}
+if((Test-Path -LiteralPath $shortcuts -PathType Container) -and @(Get-ChildItem -LiteralPath $shortcuts -File -Filter '*.lnk').Count -ne 0){throw 'Shortcuts remain'}
 if(-not(Test-Path -LiteralPath (Join-Path $app 'user-keep.txt'))){throw 'Uninstall deleted unknown user file'}
 $result=@{pass=$true;version=$Version;install=$true;shortcuts=$true;upgradeMetadataFrom='0.2.9';sameVersionReinstall=$true;uninstall=$true;unknownUserFilePreserved=$true;scope='CI isolated AppId, directory and shortcuts; production wizard not installed on user PC'}
 [IO.File]::WriteAllText((Join-Path $root 'installer-tests.json'),($result|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
